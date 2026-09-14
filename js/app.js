@@ -1144,7 +1144,7 @@ function renderSettingsPage() {
 }
 
 function renderDuplicateManagerPage() {
-  $('pageToolbar').innerHTML = `<button onclick="loadDuplicateSubmissions()">ตรวจหางานซ้ำ</button><button onclick="loadDuplicateSubmissions()">รีเฟรช</button>`;
+  $('pageToolbar').innerHTML = `<button onclick="loadDuplicateSubmissions()">ตรวจหางานซ้ำ</button><button onclick="loadDuplicateSubmissions()">รีเฟรช</button><button onclick="repairDuplicateSubmissionIds()">ซ่อมรหัสงานที่ซ้ำ</button>`;
   syncToolbarHeight();
   loadDuplicateSubmissions();
 }
@@ -1175,7 +1175,7 @@ function renderDuplicateGroup(group) {
       </div>
       <div class="duplicate-entry-actions">
         ${files[0] ? `<button onclick="window.open('${escapeHtml(files[0])}','_blank')">เปิดงาน</button>` : ''}
-        <button class="danger" onclick="deleteDuplicateSubmission('${escapeHtml(submission.SubmissionID)}')">ลบรายการนี้</button>
+        <button class="danger" onclick="deleteDuplicateSubmission('${escapeHtml(submission.SubmissionID)}', ${Number(submission.SourceRow || 0)})">ลบรายการนี้</button>
       </div>
     </div>`;
   }).join('');
@@ -1193,13 +1193,23 @@ function renderDuplicateGroup(group) {
   </section>`;
 }
 
-async function deleteDuplicateSubmission(submissionId) {
+async function deleteDuplicateSubmission(submissionId, sourceRow) {
   if (!confirm(`ยืนยันลบงานซ้ำรายการ ${submissionId} หรือไม่\n\nควรเปิดตรวจไฟล์และคะแนนก่อนลบ`)) return;
   try {
     showToast('กำลังลบรายการที่เลือก...');
-    const data = await apiPost({ action: 'deleteSubmission', submissionId, userId: state.user.UserID });
-    if (!data.deleted || String(data.submissionId) !== String(submissionId)) throw new Error('ระบบยังไม่สามารถยืนยันการลบรายการนี้ได้');
+    const data = await apiPost({ action: 'deleteSubmission', submissionId, sourceRow, userId: state.user.UserID });
+    if (!data.deleted || String(data.submissionId) !== String(submissionId) || Number(data.sourceRow) !== Number(sourceRow)) throw new Error('ระบบยังไม่สามารถยืนยันการลบรายการนี้ได้');
     showToast('ลบรายการแล้ว และปรับตารางคะแนนใหม่แล้ว');
+    await loadDuplicateSubmissions();
+  } catch (err) { showToast(err.message); }
+}
+
+async function repairDuplicateSubmissionIds() {
+  if (!confirm('ซ่อม SubmissionID ที่ซ้ำกันหรือไม่\n\nระบบจะเก็บรายการแรกไว้ และสร้างรหัสใหม่ให้รายการถัดไป โดยไม่ลบงานหรือไฟล์แนบ')) return;
+  try {
+    showToast('กำลังซ่อมรหัสงานที่ซ้ำ...');
+    const data = await apiPost({ action: 'repairDuplicateSubmissionIds', userId: state.user.UserID });
+    showToast(data.repaired ? `ซ่อมรหัสงานซ้ำแล้ว ${data.repaired} รายการ` : 'ไม่พบ SubmissionID ที่ต้องซ่อม');
     await loadDuplicateSubmissions();
   } catch (err) { showToast(err.message); }
 }
