@@ -6,29 +6,39 @@ function buildQuery(params) {
   return usp.toString();
 }
 
-function apiGet(params) {
+async function apiGet(params) {
   if (!API_URL || API_URL.includes('PASTE_YOUR')) {
-    return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ใน js/config.js'));
+    throw new Error('ยังไม่ได้ตั้งค่า API_URL ใน js/config.js');
   }
   const url = `${API_URL}?${buildQuery(params)}`;
-  return fetch(url).then(r => r.json()).then(data => {
+  if (typeof beginOperationStatus === 'function') beginOperationStatus('กำลังโหลดข้อมูล...');
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
     if (!data.ok) throw new Error(data.error || 'โหลดข้อมูลไม่สำเร็จ');
     return data;
-  });
+  } finally {
+    if (typeof endOperationStatus === 'function') endOperationStatus();
+  }
 }
 
-function apiPost(payload) {
+async function apiPost(payload) {
   if (!API_URL || API_URL.includes('PASTE_YOUR')) {
-    return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ใน js/config.js'));
+    throw new Error('ยังไม่ได้ตั้งค่า API_URL ใน js/config.js');
   }
-  return fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload || {})
-  }).then(r => r.json()).then(data => {
+  if (typeof beginOperationStatus === 'function') beginOperationStatus('กำลังบันทึกข้อมูล...');
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload || {})
+    });
+    const data = await response.json();
     if (!data.ok) throw new Error(data.error || 'บันทึกข้อมูลไม่สำเร็จ');
     return data;
-  });
+  } finally {
+    if (typeof endOperationStatus === 'function') endOperationStatus();
+  }
 }
 
 function fileToPayload(file) {
