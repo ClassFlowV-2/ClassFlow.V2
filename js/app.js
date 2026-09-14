@@ -298,7 +298,11 @@ function renderAssignmentPreview(a, label='ใบงาน') {
 function renderWorkOrAssignmentPreview(workOrSubmission, assignment) {
   const fileUrls = getSubmissionFileUrls(workOrSubmission);
   const text = getSubmissionTextWithoutOnlyLinks(workOrSubmission);
-  if (fileUrls.length) return renderSubmittedFilePreview(fileUrls, text);
+  if (fileUrls.length) return renderSubmittedFilePreview(fileUrls, text, {
+    submissionId: workOrSubmission?.SubmissionID,
+    sourceRow: workOrSubmission?.SourceRow,
+    allowDelete: state.user?.Role === 'teacher' || state.user?.Role === 'admin'
+  });
   if (String(workOrSubmission?.WorkText || '').trim()) return `<div class="text-work">${escapeHtml(workOrSubmission.WorkText).replace(/\n/g, '<br>')}</div>`;
   return renderAssignmentPreview(assignment, 'ใบงาน');
 }
@@ -364,17 +368,41 @@ function firstSubmissionFileUrl(submission) {
   return getSubmissionFileUrls(submission)[0] || '';
 }
 
-function renderSubmittedFilePreview(fileUrls, text='') {
+function renderSubmittedFilePreview(fileUrls, text='', options={}) {
   const urls = uniqueList(fileUrls);
   if (!urls.length) return '';
-  const previews = urls.map((url, i) => `<section class="submitted-file-item">
-    <div class="submitted-file-label">ไฟล์งาน ${i + 1}${urls.length > 1 ? ` จาก ${urls.length}` : ''}</div>
-    ${drivePreview(url, `ไฟล์งาน ${i + 1}`)}
-  </section>`).join('');
+  const removeButton = (url, i) => options.allowDelete && options.submissionId && urls.length > 1
+    ? `<button class="remove-file-btn danger" onclick="removeSubmissionFile('${escapeHtml(options.submissionId)}', ${Number(options.sourceRow || 0)}, '${encodeURIComponent(url)}', ${i}); event.preventDefault(); event.stopPropagation();">ลบไฟล์นี้</button>`
+    : '';
+  const previews = urls.map((url, i) => {
+    const label = `ไฟล์งาน ${i + 1}${urls.length > 1 ? ` จาก ${urls.length}` : ''}`;
+    const body = `<div class="submitted-file-actions">${removeButton(url, i)}</div>${drivePreview(url, `ไฟล์งาน ${i + 1}`)}`;
+    if (i === 0) return `<section class="submitted-file-item submitted-file-first">
+      <div class="submitted-file-label">${label}</div>${body}
+    </section>`;
+    return `<details class="submitted-file-item submitted-file-collapsible">
+      <summary>${label} — กดเพื่อแสดง</summary>
+      <div class="submitted-file-collapsible-body">${body}</div>
+    </details>`;
+  }).join('');
   return `<div class="submitted-file-preview">
     ${previews}
     ${text ? `<div class="text-work submitted-text">${escapeHtml(text).replace(/\n/g, '<br>')}</div>` : ''}
   </div>`;
+}
+
+async function removeSubmissionFile(submissionId, sourceRow, encodedUrl, fileIndex) {
+  const fileUrl = decodeURIComponent(encodedUrl || '');
+  if (!fileUrl) return showToast('ไม่พบข้อมูลไฟล์ที่ต้องการลบ');
+  if (!confirm(`นำไฟล์งาน ${Number(fileIndex) + 1} ออกจากรายการส่งงานหรือไม่\n\nไฟล์จริงจะยังเก็บอยู่ใน Google Drive`)) return;
+  try {
+    showToast(`กำลังนำไฟล์งาน ${Number(fileIndex) + 1} ออกจากรายการ...`);
+    const data = await apiPost({ action: 'removeSubmissionFile', submissionId, sourceRow, fileUrl, userId: state.user.UserID });
+    if (!data.removed) throw new Error('ระบบยังไม่สามารถยืนยันการลบไฟล์นี้ได้');
+    showToast('นำไฟล์ออกจากรายการส่งงานแล้ว');
+    if (state.currentPage === 'duplicates') await loadDuplicateSubmissions();
+    else await loadSubmissions(getReviewSearchParams());
+  } catch (err) { showToast(err.message); }
 }
 
 function renderSubmittedWorkSummary(submission) {
@@ -1227,7 +1255,7 @@ function renderDuplicateGroup(group) {
         <b>${index === 0 ? 'รายการล่าสุด' : 'รายการซ้ำ'} — ${escapeHtml(submission.SubmissionID)}</b>
         <span>วันที่ส่ง: ${escapeHtml(submission.Timestamp || '-')} | สถานะ: ${escapeHtml(submission.CheckedStatus || 'ยังไม่ตรวจ')} | คะแนน: ${escapeHtml(submission.Score || '-')}</span>
         <span>ผู้ส่ง: ${escapeHtml(submission.StudentName || '-')} ${submission.GroupName ? `| กลุ่ม: ${escapeHtml(submission.GroupName)}` : ''}</span>
-        ${files.length ? `<div class="duplicate-submitted-previews">${renderSubmittedFilePreview(files, getSubmissionTextWithoutOnlyLinks(submission))}</div>` : ''}
+        ${files.length ? `<div class="duplicate-submitted-previews">${renderSubmittedFilePreview(files, getSubmissionTextWithoutOnlyLinks(submission), { submissionId: submission.SubmissionID, sourceRow: submission.SourceRow, allowDelete: true })}</div>` : ''}
       </div>
       <div class="duplicate-entry-actions">
         ${files[0] ? `<button onclick="window.open('${escapeHtml(files[0])}','_blank')">เปิดงาน</button>` : ''}
