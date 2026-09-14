@@ -41,7 +41,52 @@ window.addEventListener('resize', syncToolbarHeight);
 function $(id) { return document.getElementById(id); }
 function escapeHtml(v) { return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
 function csv(v) { return String(v || '').split(',').map(x => x.trim()).filter(Boolean); }
-function showToast(msg) { const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3500); }
+let toastTimer = null;
+let activeOperations = 0;
+let lastToastAt = 0;
+
+function showToast(msg, options={}) {
+  const t = $('toast');
+  if (!t) return;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = null;
+  t.textContent = msg;
+  t.classList.add('show');
+  t.classList.toggle('loading', !!options.loading);
+  lastToastAt = Date.now();
+  if (!options.persistent && activeOperations === 0) {
+    toastTimer = setTimeout(() => {
+      t.classList.remove('show', 'loading');
+      toastTimer = null;
+    }, options.duration || 3500);
+  }
+}
+
+function beginOperationStatus(fallback='กำลังดำเนินการ...') {
+  activeOperations += 1;
+  document.body.classList.add('is-busy');
+  document.body.setAttribute('aria-busy', 'true');
+  const toast = $('toast');
+  const recentMessage = toast?.classList.contains('show') && Date.now() - lastToastAt < 400
+    ? toast.textContent
+    : '';
+  showToast(recentMessage || fallback, { persistent: true, loading: true });
+}
+
+function endOperationStatus() {
+  activeOperations = Math.max(0, activeOperations - 1);
+  if (activeOperations > 0) return;
+  document.body.classList.remove('is-busy');
+  document.body.removeAttribute('aria-busy');
+  const toast = $('toast');
+  if (!toast) return;
+  toast.classList.remove('loading');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show', 'loading');
+    toastTimer = null;
+  }, 3500);
+}
 function setLoading(msg='กำลังโหลด...') { $('content').innerHTML = `<div class="hero-empty">${escapeHtml(msg)}</div>`; }
 
 function normalizeHexColor(value, fallback='#22C55E') {
