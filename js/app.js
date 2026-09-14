@@ -322,12 +322,12 @@ function firstSubmissionFileUrl(submission) {
 function renderSubmittedFilePreview(fileUrls, text='') {
   const urls = uniqueList(fileUrls);
   if (!urls.length) return '';
-  const first = urls[0];
-  const preview = drivePreview(first, 'งานที่ส่ง');
-  const links = urls.map((url, i) => `<a href="${escapeHtml(url)}" target="_blank">เปิดไฟล์ ${i + 1}</a>`).join(' ');
+  const previews = urls.map((url, i) => `<section class="submitted-file-item">
+    <div class="submitted-file-label">ไฟล์งาน ${i + 1}${urls.length > 1 ? ` จาก ${urls.length}` : ''}</div>
+    ${drivePreview(url, `ไฟล์งาน ${i + 1}`)}
+  </section>`).join('');
   return `<div class="submitted-file-preview">
-    ${preview}
-    ${urls.length > 1 ? `<div class="submitted-links">${links}</div>` : ''}
+    ${previews}
     ${text ? `<div class="text-work submitted-text">${escapeHtml(text).replace(/\n/g, '<br>')}</div>` : ''}
   </div>`;
 }
@@ -1182,6 +1182,7 @@ function renderDuplicateGroup(group) {
         <b>${index === 0 ? 'รายการล่าสุด' : 'รายการซ้ำ'} — ${escapeHtml(submission.SubmissionID)}</b>
         <span>วันที่ส่ง: ${escapeHtml(submission.Timestamp || '-')} | สถานะ: ${escapeHtml(submission.CheckedStatus || 'ยังไม่ตรวจ')} | คะแนน: ${escapeHtml(submission.Score || '-')}</span>
         <span>ผู้ส่ง: ${escapeHtml(submission.StudentName || '-')} ${submission.GroupName ? `| กลุ่ม: ${escapeHtml(submission.GroupName)}` : ''}</span>
+        ${files.length ? `<div class="duplicate-submitted-previews">${renderSubmittedFilePreview(files, getSubmissionTextWithoutOnlyLinks(submission))}</div>` : ''}
       </div>
       <div class="duplicate-entry-actions">
         ${files[0] ? `<button onclick="window.open('${escapeHtml(files[0])}','_blank')">เปิดงาน</button>` : ''}
