@@ -551,7 +551,12 @@ async function batchPostSelected(makePayload, successMessage) {
     if (payloads.every(payload => payload.action === 'updateSubmission')) {
       data = await apiPost({ action: 'batchUpdateSubmissions', userId: state.user.UserID, updates: payloads });
     } else {
-      for (const payload of payloads) await apiPost(payload);
+      for (const payload of payloads) {
+        const result = await apiPost(payload);
+        if (payload.action === 'deleteSubmission' && (!result.deleted || String(result.submissionId) !== String(payload.submissionId))) {
+          throw new Error(`ระบบยังไม่สามารถยืนยันการลบรายการ ${payload.submissionId} ได้`);
+        }
+      }
     }
     showToast(`${successMessage || 'ดำเนินการกับงานที่เลือกแล้ว'} (${ids.length} งาน)`);
     state.selectedSubmissionIds.clear();
@@ -806,7 +811,8 @@ async function returnWork(id) {
 async function deleteSubmission(id) {
   if (!confirm('ลบงานที่ส่งนี้ใช่ไหม')) return;
   try {
-    await apiPost({ action: 'deleteSubmission', submissionId: id, userId: state.user.UserID });
+    const data = await apiPost({ action: 'deleteSubmission', submissionId: id, userId: state.user.UserID });
+    if (!data.deleted || String(data.submissionId) !== String(id)) throw new Error('ระบบยังไม่สามารถยืนยันการลบรายการนี้ได้');
     showToast('ลบงานแล้ว');
     await loadSubmissions(getReviewSearchParams());
   } catch (err) { showToast(err.message); }
@@ -1191,7 +1197,8 @@ async function deleteDuplicateSubmission(submissionId) {
   if (!confirm(`ยืนยันลบงานซ้ำรายการ ${submissionId} หรือไม่\n\nควรเปิดตรวจไฟล์และคะแนนก่อนลบ`)) return;
   try {
     showToast('กำลังลบรายการที่เลือก...');
-    await apiPost({ action: 'deleteSubmission', submissionId, userId: state.user.UserID });
+    const data = await apiPost({ action: 'deleteSubmission', submissionId, userId: state.user.UserID });
+    if (!data.deleted || String(data.submissionId) !== String(submissionId)) throw new Error('ระบบยังไม่สามารถยืนยันการลบรายการนี้ได้');
     showToast('ลบรายการแล้ว และปรับตารางคะแนนใหม่แล้ว');
     await loadDuplicateSubmissions();
   } catch (err) { showToast(err.message); }
