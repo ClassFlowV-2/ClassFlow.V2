@@ -16,6 +16,8 @@ const state = {
   submissions: [],
   reviewSelectMode: false,
   selectedSubmissionIds: new Set(),
+  duplicateGroups: [],
+  selectedDuplicateRows: new Set(),
   scoreTable: null
 };
 const ALL_OPTION = '__ALL__';
@@ -1154,8 +1156,15 @@ async function loadDuplicateSubmissions() {
     setLoading('กำลังตรวจหางานซ้ำ...');
     const data = await apiGet({ action: 'duplicateSubmissions' });
     const groups = data.duplicateGroups || [];
+    state.duplicateGroups = groups;
+    state.selectedDuplicateRows.clear();
     $('content').innerHTML = groups.length
-      ? `<div class="duplicate-list">${groups.map(renderDuplicateGroup).join('')}</div>`
+      ? `<div class="duplicate-bulk-toolbar">
+          <strong id="duplicateSelectedCount">เลือกแล้ว 0 รายการ</strong>
+          <button onclick="selectAllDuplicateExtras()">เลือกงานซ้ำทั้งหมด</button>
+          <button onclick="clearDuplicateSelection()">ยกเลิกการเลือก</button>
+          <button class="danger" onclick="deleteSelectedDuplicates()">ลบรายการที่เลือก</button>
+        </div><div class="duplicate-list">${groups.map(renderDuplicateGroup).join('')}</div>`
       : '<div class="hero-empty">ไม่พบงานนักเรียนที่ซ้ำกันในระบบ</div>';
   } catch (err) { showToast(err.message); }
 }
@@ -1168,6 +1177,7 @@ function renderDuplicateGroup(group) {
   const entries = (group.submissions || []).map((submission, index) => {
     const files = getSubmissionFileUrls(submission);
     return `<div class="duplicate-entry">
+      <label class="duplicate-select"><input type="checkbox" id="duplicateSelect_${Number(submission.SourceRow || 0)}" onchange="toggleDuplicateSelection(${Number(submission.SourceRow || 0)}, this.checked)"> เลือก</label>
       <div class="duplicate-entry-info">
         <b>${index === 0 ? 'รายการล่าสุด' : 'รายการซ้ำ'} — ${escapeHtml(submission.SubmissionID)}</b>
         <span>วันที่ส่ง: ${escapeHtml(submission.Timestamp || '-')} | สถานะ: ${escapeHtml(submission.CheckedStatus || 'ยังไม่ตรวจ')} | คะแนน: ${escapeHtml(submission.Score || '-')}</span>
@@ -1191,6 +1201,75 @@ function renderDuplicateGroup(group) {
       <div class="duplicate-entries">${entries}</div>
     </div>
   </section>`;
+}
+
+function duplicateEntryByRow(sourceRow) {
+  for (const group of state.duplicateGroups || []) {
+    const submission = (group.submissions || []).find(item => Number(item.SourceRow) === Number(sourceRow));
+    if (submission) return { group, submission };
+  }
+  return null;
+}
+
+function updateDuplicateSelectedCount() {
+  const el = $('duplicateSelectedCount');
+  if (el) el.textContent = `เลือกแล้ว ${state.selectedDuplicateRows.size} รายการ`;
+}
+
+function toggleDuplicateSelection(sourceRow, checked) {
+  const found = duplicateEntryByRow(sourceRow);
+  if (!found) return;
+  const groupRows = (found.group.submissions || []).map(item => Number(item.SourceRow));
+  const alreadySelected = groupRows.filter(row => state.selectedDuplicateRows.has(row)).length;
+  if (checked && alreadySelected >= groupRows.length - 1) {
+    const checkbox = $(`duplicateSelect_${Number(sourceRow)}`);
+    if (checkbox) checkbox.checked = false;
+    showToast('ต้องเหลืองานไว้อย่างน้อย 1 รายการในชุดนี้');
+    return;
+  }
+  if (checked) state.selectedDuplicateRows.add(Number(sourceRow));
+  else state.selectedDuplicateRows.delete(Number(sourceRow));
+  updateDuplicateSelectedCount();
+}
+
+function selectAllDuplicateExtras() {
+  state.selectedDuplicateRows.clear();
+  (state.duplicateGroups || []).forEach(group => {
+    // รายการแรกเป็นรายการล่าสุด จึงเลือกเฉพาะรายการลำดับถัดไป
+    (group.submissions || []).slice(1).forEach(item => state.selectedDuplicateRows.add(Number(item.SourceRow)));
+  });
+  document.querySelectorAll('[id^="duplicateSelect_"]').forEach(box => {
+    const row = Number(box.id.replace('duplicateSelect_', ''));
+    box.checked = state.selectedDuplicateRows.has(row);
+  });
+  updateDuplicateSelectedCount();
+}
+
+function clearDuplicateSelection() {
+  state.selectedDuplicateRows.clear();
+  document.querySelectorAll('[id^="duplicateSelect_"]').forEach(box => { box.checked = false; });
+  updateDuplicateSelectedCount();
+}
+
+async function deleteSelectedDuplicates() {
+  const rows = Array.from(state.selectedDuplicateRows);
+  if (!rows.length) return showToast('กรุณาเลือกรายการที่ต้องการลบก่อน');
+  const items = rows.map(sourceRow => {
+    const found = duplicateEntryByRow(sourceRow);
+    return found ? { submissionId: found.submission.SubmissionID, sourceRow } : null;
+  }).filter(Boolean);
+  if (items.length !== rows.length) return showToast('ข้อมูลรายการเปลี่ยนไปแล้ว กรุณารีเฟรชก่อน');
+  if (!confirm(`ยืนยันลบงานซ้ำที่เลือก ${items.length} รายการหรือไม่\n\nระบบจะเก็บไฟล์แนบใน Google Drive ไว้`)) return;
+  try {
+    showToast(`กำลังลบ ${items.length} รายการ...`);
+    const data = await apiPost({ action: 'deleteSubmissionsBatch', userId: state.user.UserID, items });
+    if (Number(data.deleted) !== items.length) throw new Error('จำนวนรายการที่ลบไม่ตรงกับรายการที่เลือก');
+    showToast(`ลบงานซ้ำแล้ว ${data.deleted} รายการ`);
+    await loadDuplicateSubmissions();
+  } catch (err) {
+    showToast(err.message);
+    await loadDuplicateSubmissions();
+  }
 }
 
 async function deleteDuplicateSubmission(submissionId, sourceRow) {
