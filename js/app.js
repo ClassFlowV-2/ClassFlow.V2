@@ -334,6 +334,22 @@ function uniqueList(list) {
   return out;
 }
 
+function uniqueSubmissionFileList(list) {
+  const seen = new Set();
+  const out = [];
+  (list || []).forEach(item => {
+    const value = String(item || '').trim();
+    if (!value) return;
+    const driveId = extractDriveId(value);
+    // URL ของ Drive อาจอยู่หลายรูปแบบ แต่ถ้า File ID เดียวกันให้ถือเป็นไฟล์เดียวกัน
+    const key = driveId ? `drive:${driveId}` : `url:${value.replace(/#.*$/, '').replace(/\/$/, '')}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(value);
+  });
+  return out;
+}
+
 function fileIdToDriveUrl(id) {
   const cleanId = String(id || '').trim();
   if (!cleanId) return '';
@@ -353,7 +369,7 @@ function getSubmissionFileUrls(submission) {
   splitFileList(submission.FileIDs).forEach(id => urls.push(fileIdToDriveUrl(id)));
   splitFileList(submission.FileID).forEach(id => urls.push(fileIdToDriveUrl(id)));
   urls.push(...extractUrlsFromText(submission.WorkText));
-  return uniqueList(urls);
+  return uniqueSubmissionFileList(urls);
 }
 
 function getSubmissionTextWithoutOnlyLinks(submission) {
@@ -369,7 +385,7 @@ function firstSubmissionFileUrl(submission) {
 }
 
 function renderSubmittedFilePreview(fileUrls, text='', options={}) {
-  const urls = uniqueList(fileUrls);
+  const urls = uniqueSubmissionFileList(fileUrls);
   if (!urls.length) return '';
   const removeButton = (url, i) => options.allowDelete && options.submissionId && urls.length > 1
     ? `<button class="remove-file-btn danger" onclick="removeSubmissionFile('${escapeHtml(options.submissionId)}', ${Number(options.sourceRow || 0)}, '${encodeURIComponent(url)}', ${i}); event.preventDefault(); event.stopPropagation();">ลบไฟล์นี้</button>`
