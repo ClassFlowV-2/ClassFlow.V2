@@ -635,6 +635,13 @@ function selectedSubmissionObjects() {
   return (state.submissions || []).filter(s => ids.has(String(s.SubmissionID)));
 }
 
+function batchFailureDetail(failed) {
+  const messages = (failed || []).map(result => String(result.error || '').trim()).filter(Boolean);
+  if (!messages.length) return '';
+  const unique = Array.from(new Set(messages));
+  return `: ${unique.slice(0, 3).join(' | ')}${unique.length > 3 ? ' | ...' : ''}`;
+}
+
 async function batchPostSelected(makePayload, successMessage) {
   const ids = selectedSubmissionIds();
   if (!ids.length) return showToast('กรุณาเลือกงานนักเรียนก่อน');
@@ -660,7 +667,7 @@ async function batchPostSelected(makePayload, successMessage) {
         state.selectedSubmissionIds.delete(String(result.submissionId));
       });
       showToast(data.warning || (failed.length
-        ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน — คงรายการที่ไม่สำเร็จไว้แล้ว`
+        ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน${batchFailureDetail(failed)} — คงรายการที่ไม่สำเร็จไว้แล้ว`
         : `${successMessage || 'ดำเนินการกับงานที่เลือกแล้ว'} (${succeeded.length} งาน)`));
       updateBulkSelectedCount();
     } else {
@@ -680,7 +687,7 @@ function batchFullScoreSelected() {
   batchPostSelected(id => {
     const s = items.find(x => String(x.SubmissionID) === String(id));
     const a = s?.assignment || getAssignment(s?.AssignmentID) || {};
-    return { action: 'updateSubmission', submissionId: id, userId: state.user.UserID, Score: a.FullScore || '', CheckedStatus: 'ตรวจแล้ว' };
+    return { action: 'updateSubmission', submissionId: id, assignmentId: s?.AssignmentID || '', userId: state.user.UserID, Score: a.FullScore ?? '', CheckedStatus: 'ตรวจแล้ว', requireScore: true };
   }, 'ให้คะแนนเต็มกับงานที่เลือกแล้ว');
 }
 
@@ -1163,7 +1170,7 @@ async function batchUpdateScoreCells(makePayload, successMessage) {
     const failed = (data.results || []).filter(result => !result.ok);
     succeeded.forEach(result => applySavedSubmissionToScoreTable(result.submission));
     showToast(data.warning || (failed.length
-      ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน — รายการที่ไม่สำเร็จยังถูกเลือกอยู่`
+      ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน${batchFailureDetail(failed)} — รายการที่ไม่สำเร็จยังถูกเลือกอยู่`
       : `${successMessage || 'บันทึกคะแนนแล้ว'} (${succeeded.length} งาน)`));
     document.querySelectorAll('.score-col-check').forEach(cb => cb.checked = false);
     updateScoreSelectedCount();
@@ -1179,7 +1186,7 @@ function batchScoreMarkChecked() {
 function batchScoreFullScore() {
   batchUpdateScoreCells(item => {
     const a = getScoreAssignment(item.assignmentId);
-    return { action: 'updateSubmission', submissionId: item.submissionId, userId: state.user.UserID, Score: a.FullScore || '', CheckedStatus: 'ตรวจแล้ว' };
+    return { action: 'updateSubmission', submissionId: item.submissionId, assignmentId: item.assignmentId, userId: state.user.UserID, Score: a.FullScore ?? '', CheckedStatus: 'ตรวจแล้ว', requireScore: true };
   }, 'ให้คะแนนเต็มกับช่องที่เลือกแล้ว');
 }
 function batchScoreCustomScore() {
