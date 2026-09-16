@@ -18,7 +18,10 @@ const state = {
   selectedSubmissionIds: new Set(),
   duplicateGroups: [],
   selectedDuplicateRows: new Set(),
-  scoreTable: null
+  scoreTable: null,
+  studentWorkByAssignment: new Map(),
+  submissionRequestIds: new Map(),
+  submissionsInFlight: new Set()
 };
 const ALL_OPTION = '__ALL__';
 
@@ -649,12 +652,19 @@ async function batchPostSelected(makePayload, successMessage) {
         }
       }
     }
-    showToast(`${successMessage || 'ดำเนินการกับงานที่เลือกแล้ว'} (${ids.length} งาน)`);
-    state.selectedSubmissionIds.clear();
     if (data?.results) {
-      data.results.forEach(result => applySavedSubmission(result.submission));
+      const succeeded = data.results.filter(result => result.ok && result.submission);
+      const failed = data.results.filter(result => !result.ok);
+      succeeded.forEach(result => {
+        applySavedSubmission(result.submission);
+        state.selectedSubmissionIds.delete(String(result.submissionId));
+      });
+      showToast(data.warning || (failed.length
+        ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน — คงรายการที่ไม่สำเร็จไว้แล้ว`
+        : `${successMessage || 'ดำเนินการกับงานที่เลือกแล้ว'} (${succeeded.length} งาน)`));
       updateBulkSelectedCount();
     } else {
+      state.selectedSubmissionIds.clear();
       await loadSubmissions();
     }
   } catch (err) { showToast(err.message); }
@@ -1149,8 +1159,12 @@ async function batchUpdateScoreCells(makePayload, successMessage) {
     showToast(`กำลังบันทึก ${selected.length} ช่อง...`);
     const updates = selected.map(item => makePayload(item));
     const data = await apiPost({ action: 'batchUpdateSubmissions', userId: state.user.UserID, updates });
-    showToast(`${successMessage || 'บันทึกคะแนนแล้ว'} (${selected.length} ช่อง)`);
-    (data.results || []).forEach(result => applySavedSubmissionToScoreTable(result.submission));
+    const succeeded = (data.results || []).filter(result => result.ok && result.submission);
+    const failed = (data.results || []).filter(result => !result.ok);
+    succeeded.forEach(result => applySavedSubmissionToScoreTable(result.submission));
+    showToast(data.warning || (failed.length
+      ? `บันทึกสำเร็จ ${succeeded.length} งาน, ไม่สำเร็จ ${failed.length} งาน — รายการที่ไม่สำเร็จยังถูกเลือกอยู่`
+      : `${successMessage || 'บันทึกคะแนนแล้ว'} (${succeeded.length} งาน)`));
     document.querySelectorAll('.score-col-check').forEach(cb => cb.checked = false);
     updateScoreSelectedCount();
     buttons.forEach(button => button.disabled = false);
@@ -1554,6 +1568,7 @@ async function loadStudentWork(returnedOnly=false) {
     setLoading('กำลังโหลดงานของฉัน...');
     const data = await apiGet({ action: 'studentWork', userId: state.user.UserID });
     const list = (data.work || []).filter(w => !returnedOnly || w.submission?.ReturnStatus === 'ส่งคืน');
+    state.studentWorkByAssignment = new Map(list.map(w => [String(w.assignment?.AssignmentID || ''), w]));
     $('content').innerHTML = `<div class="card-list">${list.map(renderStudentWorkCard).join('') || '<div class="hero-empty">ไม่พบงาน</div>'}</div>`;
   } catch (err) { showToast(err.message); }
 }
@@ -1562,14 +1577,13 @@ function renderStudentWorkCard(w) {
   const s = w.submission;
   const groupMissing = a.WorkType === 'งานกลุ่ม' && !w.group;
   const canSubmit = a.Status === 'เปิดใช้งาน' && !groupMissing;
-  const left = s ? renderWorkOrAssignmentPreview(s, a) : renderStudentAssignmentPreview(w);
   const previewId = `studentWorkPreview_${a.AssignmentID}`;
   return `<article class="layout-card">
     <div class="slot-note">${s ? '(งานที่ส่งแล้ว)' : '(ใบงาน)'}</div>
     <div class="card-icons">
-      <button class="icon-btn" title="แสดง/ซ่อน${s ? 'งานที่ส่งแล้ว' : 'ใบงานหรือคำสั่ง'}" onclick="togglePreviewBox('${previewId}')">👁</button>
+      <button class="icon-btn" title="โหลด/ซ่อน${s ? 'งานที่ส่งแล้ว' : 'ใบงานหรือคำสั่ง'}" onclick="toggleStudentWorkPreview('${a.AssignmentID}')">👁</button>
     </div>
-    <div class="work-preview" id="${previewId}">${left}</div>
+    <div class="work-preview" id="${previewId}" data-loaded="0"><button onclick="toggleStudentWorkPreview('${a.AssignmentID}')">กดเพื่อแสดง${s ? 'งานที่ส่งแล้ว' : 'ใบงานหรือคำสั่ง'}</button></div>
     <div class="detail-panel">
       <h3>${escapeHtml(a.Topic)}</h3>
       <div>คะแนนเต็ม ${escapeHtml(a.FullScore || '-')} | สถานะงาน <span class="status-pill">${escapeHtml(a.Status || '')}</span></div>
@@ -1588,16 +1602,88 @@ function renderStudentWorkCard(w) {
     </div>
   </article>`;
 }
+
+function toggleStudentWorkPreview(assignmentId) {
+  const box = $(`studentWorkPreview_${assignmentId}`);
+  const work = state.studentWorkByAssignment.get(String(assignmentId));
+  if (!box || !work) return;
+  if (box.dataset.loaded !== '1') {
+    box.innerHTML = work.submission
+      ? renderWorkOrAssignmentPreview(work.submission, work.assignment)
+      : renderStudentAssignmentPreview(work);
+    box.dataset.loaded = '1';
+    box.style.display = '';
+    return;
+  }
+  box.style.display = box.style.display === 'none' ? '' : 'none';
+}
+
+const STUDENT_UPLOAD_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const STUDENT_UPLOAD_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+
+function validateStudentUploadFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length > 5) throw new Error('แนบไฟล์ได้สูงสุด 5 ไฟล์ต่อครั้ง');
+  const tooLarge = files.find(file => Number(file.size || 0) > STUDENT_UPLOAD_MAX_FILE_BYTES);
+  if (tooLarge) throw new Error(`ไฟล์ ${tooLarge.name} ใหญ่เกิน 8 MB กรุณาลดขนาดไฟล์ก่อนส่ง`);
+  const total = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  if (total > STUDENT_UPLOAD_MAX_TOTAL_BYTES) throw new Error('ไฟล์รวมใหญ่เกิน 20 MB กรุณาลดขนาดหรือแบ่งส่ง');
+  return files;
+}
+
+function createSubmissionRequestId(assignmentId) {
+  if (window.crypto?.randomUUID) return `${assignmentId}-${window.crypto.randomUUID()}`;
+  return `${assignmentId}-${state.user?.UserID || ''}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function submissionRequestStorageKey(assignmentId) {
+  return `matrix_submit_request_${state.user?.UserID || ''}_${assignmentId}`;
+}
+
+function getOrCreateSubmissionRequestId(assignmentId) {
+  const key = String(assignmentId);
+  let requestId = state.submissionRequestIds.get(key) || '';
+  try { requestId = requestId || sessionStorage.getItem(submissionRequestStorageKey(assignmentId)) || ''; } catch (err) {}
+  if (!requestId) requestId = createSubmissionRequestId(assignmentId);
+  state.submissionRequestIds.set(key, requestId);
+  try { sessionStorage.setItem(submissionRequestStorageKey(assignmentId), requestId); } catch (err) {}
+  return requestId;
+}
+
+function clearSubmissionRequestId(assignmentId) {
+  state.submissionRequestIds.delete(String(assignmentId));
+  try { sessionStorage.removeItem(submissionRequestStorageKey(assignmentId)); } catch (err) {}
+}
 async function submitStudentWork(assignmentId) {
+  const key = String(assignmentId);
+  if (state.submissionsInFlight.has(key)) return showToast('กำลังส่งงานนี้อยู่ กรุณารอจนกว่าจะเสร็จ');
+  state.submissionsInFlight.add(key);
+  const requestId = getOrCreateSubmissionRequestId(assignmentId);
+  let submissionConfirmed = false;
   try {
     const input = $(`file_${assignmentId}`);
-    const files = await Promise.all(Array.from(input.files || []).map(fileToPayload));
+    const selectedFiles = validateStudentUploadFiles(input.files);
+    const files = [];
+    for (let i = 0; i < selectedFiles.length; i += 1) {
+      showToast(`กำลังเตรียมไฟล์ ${i + 1} จาก ${selectedFiles.length}...`, { persistent: true, loading: true });
+      files.push(await fileToPayload(selectedFiles[i]));
+    }
     const workText = $(`workText_${assignmentId}`).value;
     if (!String(workText || '').trim() && !files.length) return showToast('กรุณาพิมพ์คำตอบหรือแนบไฟล์ก่อนส่งงาน');
     const assignment = getAssignment(assignmentId);
     const submitMode = assignment.WorkType === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
-    await apiPost({ action: 'submitWork', userId: state.user.UserID, assignmentId, submitMode, workText, files });
-    showToast('ส่งงานแล้ว');
+    showToast('กำลังอัปโหลดและบันทึกงาน กรุณาอย่าปิดหน้านี้...', { persistent: true, loading: true });
+    const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, workText, files });
+    if (!data.verified || !data.submission?.SubmissionID) throw new Error('ระบบยังยืนยันงานที่บันทึกไม่ได้ กรุณาอย่ากดส่งซ้ำและแจ้งครู');
+    submissionConfirmed = true;
+    clearSubmissionRequestId(assignmentId);
+    showToast(`${data.warning ? data.warning + ' — ' : ''}ส่งงานแล้ว เลขที่รับงาน ${data.submission.SubmissionID}`);
     await loadStudentWork(false);
-  } catch (err) { showToast(err.message); }
+  } catch (err) {
+    showToast(submissionConfirmed
+      ? `ส่งงานสำเร็จแล้ว แต่โหลดรายการใหม่ไม่สำเร็จ: ${err.message} — กดรีเฟรชงานได้โดยไม่ต้องส่งซ้ำ`
+      : `${err.message} — หากลองใหม่ ระบบจะใช้คำขอเดิมเพื่อป้องกันงานซ้ำ`);
+  } finally {
+    state.submissionsInFlight.delete(key);
+  }
 }
