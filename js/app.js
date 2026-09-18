@@ -266,12 +266,41 @@ function getStudent(id) { return state.students.find(u => u.UserID === id); }
 
 function assignmentInstructionType(a) {
   const raw = String(a?.InstructionType || '').trim();
-  if (['ข้อความ', 'ไฟล์ใบงาน', 'ข้อความและไฟล์'].includes(raw)) return raw;
+  if (String(a?.AssignmentMode || '').trim() === 'ใบงานออนไลน์') return 'ใบงานออนไลน์';
+  if (['ข้อความ', 'ไฟล์ใบงาน', 'ข้อความและไฟล์', 'ใบงานออนไลน์'].includes(raw)) return raw;
   const hasText = !!String(a?.Description || '').trim();
   const hasUrl = !!String(a?.WorksheetURL || '').trim();
   if (hasText && hasUrl) return 'ข้อความและไฟล์';
   if (hasUrl) return 'ไฟล์ใบงาน';
   return 'ข้อความ';
+}
+
+function isOnlineWorksheet(a) {
+  return assignmentInstructionType(a) === 'ใบงานออนไลน์';
+}
+
+function parseWorksheetSchema(a) {
+  try {
+    const parsed = typeof a?.WorksheetSchema === 'string' ? JSON.parse(a.WorksheetSchema || '{}') : (a?.WorksheetSchema || {});
+    return { version: 1, questions: Array.isArray(parsed.questions) ? parsed.questions : [] };
+  } catch (err) { return { version: 1, questions: [] }; }
+}
+
+function parseWorksheetAnswers(submission) {
+  try {
+    const parsed = typeof submission?.WorksheetAnswers === 'string' ? JSON.parse(submission.WorksheetAnswers || '{}') : (submission?.WorksheetAnswers || {});
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) { return {}; }
+}
+
+function renderWorksheetAnswerSummary(assignment, submission) {
+  const schema = parseWorksheetSchema(assignment);
+  const answers = parseWorksheetAnswers(submission);
+  if (!schema.questions.length || !Object.keys(answers).length) return '';
+  return `<div class="worksheet-answer-summary"><h4>คำตอบใบงานออนไลน์</h4>${schema.questions.map((q, index) => {
+    const value = Array.isArray(answers[q.id]) ? answers[q.id].join(', ') : String(answers[q.id] ?? '').trim();
+    return `<div class="worksheet-answer-row"><b>${index + 1}. ${escapeHtml(q.label)}</b><div>${value ? escapeHtml(value).replace(/\n/g, '<br>') : '<span class="answer-empty">ไม่ได้ตอบ</span>'}</div></div>`;
+  }).join('')}</div>`;
 }
 
 function worksheetIsVisible(a) {
@@ -301,11 +330,13 @@ function renderAssignmentPreview(a, label='ใบงาน') {
 function renderWorkOrAssignmentPreview(workOrSubmission, assignment) {
   const fileUrls = getSubmissionFileUrls(workOrSubmission);
   const text = getSubmissionTextWithoutOnlyLinks(workOrSubmission);
-  if (fileUrls.length) return renderSubmittedFilePreview(fileUrls, text, {
+  const onlineAnswers = renderWorksheetAnswerSummary(assignment, workOrSubmission);
+  if (fileUrls.length) return onlineAnswers + renderSubmittedFilePreview(fileUrls, text, {
     submissionId: workOrSubmission?.SubmissionID,
     sourceRow: workOrSubmission?.SourceRow,
     allowDelete: state.user?.Role === 'teacher' || state.user?.Role === 'admin'
   });
+  if (onlineAnswers) return onlineAnswers;
   if (String(workOrSubmission?.WorkText || '').trim()) return `<div class="text-work">${escapeHtml(workOrSubmission.WorkText).replace(/\n/g, '<br>')}</div>`;
   return renderAssignmentPreview(assignment, 'ใบงาน');
 }
@@ -473,6 +504,7 @@ function renderAssignmentCard(a) {
       <div><b>ห้องที่สั่งงาน:</b> ${escapeHtml(a.AssignedClasses)}</div>
       <div><b>คำอธิบาย:</b><br>${escapeHtml(a.Description || 'ไม่มีคำอธิบาย').replace(/\n/g, '<br>')}</div>
       <div class="detail-actions">
+        <button onclick="openAssignmentEditor('${a.AssignmentID}')">แก้ไขงาน</button>
         <button onclick="toggleWorksheet('${a.AssignmentID}')">${materialToggleLabel(a)}</button>
         ${materialOpenButton(a)}
         <button class="${inactive?'':'warn'}" onclick="toggleAssignmentStatus('${a.AssignmentID}', '${inactive?'เปิดใช้งาน':'ปิดใช้งาน'}')">${inactive?'เปิดใช้งาน':'ปิดการใช้งาน'}</button>
@@ -545,7 +577,63 @@ async function toggleAssignmentStatus(id, status) {
   } catch (err) { showToast(err.message); }
 }
 function openCreateAssignment() {
-  alert('V2 รองรับคำสั่งงานแบบข้อความแล้ว: ให้เพิ่มคอลัมน์ InstructionType ใน Main และใส่ค่า ข้อความ / ไฟล์ใบงาน / ข้อความและไฟล์');
+  openAssignmentEditor();
+}
+
+function assignmentEditorClasses(level, selected=[]) {
+  return (state.classesByLevel[level] || []).map(c => `<label class="inline-check"><input type="checkbox" name="assignmentClass" value="${escapeHtml(c)}" ${selected.includes(c) ? 'checked' : ''}> ${escapeHtml(c)}</label>`).join('') || '<span>เลือกระดับชั้นก่อน</span>';
+}
+
+function openAssignmentEditor(assignmentId='') {
+  const a = assignmentId ? getAssignment(assignmentId) : null;
+  const level = a?.Level || state.selectedLevel || state.levels[0] || '';
+  const modal = document.createElement('div');
+  modal.id = 'assignmentEditorModal';
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `<div class="modal-card assignment-editor">
+    <div class="modal-head"><h2>${a ? 'แก้ไขงาน' : 'เพิ่มงาน'}</h2><button type="button" onclick="closeAssignmentEditor()">✕</button></div>
+    <div class="assignment-form-grid">
+      <label>ระดับชั้น<select id="aeLevel" onchange="$('aeClasses').innerHTML=assignmentEditorClasses(this.value, [])">${levelOptions(level)}</select></label>
+      <label>ชื่องาน<input id="aeTopic" value="${escapeHtml(a?.Topic || '')}"></label>
+      <label>คะแนนเต็ม<input id="aeFullScore" type="number" min="0" step="0.01" value="${escapeHtml(a?.FullScore ?? '')}"></label>
+      <label>ประเภทงาน<select id="aeWorkType"><option ${a?.WorkType !== 'งานกลุ่ม' ? 'selected' : ''}>งานเดี่ยว</option><option ${a?.WorkType === 'งานกลุ่ม' ? 'selected' : ''}>งานกลุ่ม</option></select></label>
+      <label class="full-row">ห้องที่มอบหมาย<div id="aeClasses" class="class-checks">${assignmentEditorClasses(level, csv(a?.AssignedClasses))}</div></label>
+      <label class="full-row">รูปแบบงาน<select id="aeMode" onchange="toggleAssignmentModeFields()"><option value="งานแนบไฟล์" ${!isOnlineWorksheet(a) ? 'selected' : ''}>งานปกติ (ข้อความ/แนบไฟล์)</option><option value="ใบงานออนไลน์" ${isOnlineWorksheet(a) ? 'selected' : ''}>ใบงานออนไลน์ (พิมพ์ตอบในเว็บ)</option></select></label>
+      <label class="full-row">คำชี้แจง<textarea id="aeDescription">${escapeHtml(a?.Description || '')}</textarea></label>
+      <label class="full-row">ลิงก์ภาพ/ไฟล์ใบงาน Google Drive (ไม่บังคับ)<input id="aeWorksheetURL" value="${escapeHtml(a?.WorksheetURL || '')}" placeholder="https://drive.google.com/..."></label>
+    </div>
+    <section id="aeQuestionSection" class="question-builder"><div class="builder-head"><h3>ช่องคำตอบใบงาน</h3><button type="button" onclick="addWorksheetQuestion()">+เพิ่มคำถาม</button></div><div id="aeQuestions"></div></section>
+    <div class="modal-actions"><button type="button" onclick="closeAssignmentEditor()">ยกเลิก</button><button type="button" onclick="saveAssignmentEditor('${escapeHtml(assignmentId)}')">บันทึกงาน</button></div>
+  </div>`;
+  document.body.appendChild(modal);
+  parseWorksheetSchema(a).questions.forEach(addWorksheetQuestion);
+  toggleAssignmentModeFields();
+}
+
+function closeAssignmentEditor() { $('assignmentEditorModal')?.remove(); }
+function toggleAssignmentModeFields() { $('aeQuestionSection')?.classList.toggle('hidden', $('aeMode')?.value !== 'ใบงานออนไลน์'); }
+function addWorksheetQuestion(q={}) {
+  const box = document.createElement('div');
+  box.className = 'question-builder-row';
+  box.dataset.questionId = q.id || `Q${Date.now()}${Math.floor(Math.random()*1000)}`;
+  box.innerHTML = `<label>คำถาม<input class="qb-label" value="${escapeHtml(q.label || '')}" placeholder="เช่น เป็นเทคโนโลยีหรือไม่"></label><label>ชนิด<select class="qb-type" onchange="this.closest('.question-builder-row').querySelector('.qb-options-wrap').classList.toggle('hidden', !['radio','checkbox'].includes(this.value))"><option value="short" ${q.type==='short'?'selected':''}>ข้อความสั้น</option><option value="long" ${!q.type||q.type==='long'?'selected':''}>ข้อความยาว</option><option value="radio" ${q.type==='radio'?'selected':''}>เลือกได้ 1 คำตอบ</option><option value="checkbox" ${q.type==='checkbox'?'selected':''}>เลือกได้หลายคำตอบ</option><option value="number" ${q.type==='number'?'selected':''}>ตัวเลข</option></select></label><label class="qb-options-wrap ${['radio','checkbox'].includes(q.type)?'':'hidden'}">ตัวเลือก (คั่นด้วย |)<input class="qb-options" value="${escapeHtml((q.options || []).join(' | '))}" placeholder="เป็น | ไม่เป็น"></label><label class="inline-check"><input class="qb-required" type="checkbox" ${q.required?'checked':''}> บังคับตอบ</label><button type="button" class="danger" onclick="this.closest('.question-builder-row').remove()">ลบข้อนี้</button>`;
+  $('aeQuestions')?.appendChild(box);
+}
+
+async function saveAssignmentEditor(assignmentId='') {
+  const classes = Array.from(document.querySelectorAll('[name="assignmentClass"]:checked')).map(x => x.value);
+  const mode = $('aeMode').value;
+  const questions = Array.from(document.querySelectorAll('.question-builder-row')).map(row => ({ id: row.dataset.questionId, label: row.querySelector('.qb-label').value.trim(), type: row.querySelector('.qb-type').value, options: row.querySelector('.qb-options').value.split('|').map(x => x.trim()).filter(Boolean), required: row.querySelector('.qb-required').checked }));
+  const existingAssignment = assignmentId ? getAssignment(assignmentId) : null;
+  const assignment = { Level: $('aeLevel').value, Topic: $('aeTopic').value.trim(), FullScore: $('aeFullScore').value, WorkType: $('aeWorkType').value, GroupMode: $('aeWorkType').value === 'งานกลุ่ม' ? (existingAssignment?.GroupMode || 'ใช้กลุ่มประจำห้อง') : 'ไม่ใช้กลุ่ม', AssignedClasses: classes.join(','), Description: $('aeDescription').value.trim(), WorksheetURL: $('aeWorksheetURL').value.trim(), WorksheetVisible: true, AssignmentMode: mode, InstructionType: mode === 'ใบงานออนไลน์' ? 'ใบงานออนไลน์' : ($('aeWorksheetURL').value.trim() ? 'ข้อความและไฟล์' : 'ข้อความ'), WorksheetSchema: mode === 'ใบงานออนไลน์' ? JSON.stringify({version:1, questions}) : '' };
+  if (existingAssignment?.GroupSetID) assignment.GroupSetID = existingAssignment.GroupSetID;
+  if (!assignment.Level || !assignment.Topic || !classes.length) return showToast('กรุณาระบุระดับชั้น ชื่องาน และห้องที่มอบหมาย');
+  if (mode === 'ใบงานออนไลน์' && (!questions.length || questions.some(q => !q.label))) return showToast('กรุณาเพิ่มคำถามและใส่ข้อความให้ครบ');
+  try {
+    showToast('กำลังบันทึกงาน...', {persistent:true, loading:true});
+    await apiPost(assignmentId ? {action:'updateAssignment', assignmentId, updates:assignment, userId:state.user.UserID} : {action:'createAssignment', assignment, userId:state.user.UserID});
+    closeAssignmentEditor(); await refreshBootstrap(false); renderAssignmentsPage(); showToast('บันทึกงานแล้ว');
+  } catch (err) { showToast(err.message); }
 }
 
 function renderReviewAllPage() {
@@ -1271,6 +1359,8 @@ async function loadDuplicateSubmissions() {
     $('content').innerHTML = groups.length
       ? `<div class="duplicate-bulk-toolbar">
           <strong id="duplicateSelectedCount">เลือกแล้ว 0 รายการ</strong>
+          <span>ซ้ำสมบูรณ์ ${escapeHtml(data.exactGroups || 0)} ชุด / ลบได้ ${escapeHtml(data.exactExtraRows || 0)} แถว</span>
+          <button onclick="selectAllExactDuplicateExtras()">เลือกแถวซ้ำสมบูรณ์</button>
           <button onclick="selectAllDuplicateExtras()">เลือกงานซ้ำทั้งหมด</button>
           <button onclick="clearDuplicateSelection()">ยกเลิกการเลือก</button>
           <button class="danger" onclick="deleteSelectedDuplicates()">ลบรายการที่เลือก</button>
@@ -1280,30 +1370,39 @@ async function loadDuplicateSubmissions() {
 }
 
 function renderDuplicateGroup(group) {
+  const isExact = group.duplicateType === 'exact';
+  const exactKeepRows = new Set((state.duplicateGroups || [])
+    .filter(item => item.duplicateType === 'exact')
+    .map(item => Number(item.recommendedKeepRow)));
   const assignment = group.submissions?.[0]?.assignment || {};
   const worksheet = hasWorksheetFile(assignment)
     ? drivePreview(assignment.WorksheetURL, 'ใบงาน')
     : renderInstructionText(assignment, 'ยังไม่มีใบงานหรือคำสั่งงาน');
   const entries = (group.submissions || []).map((submission, index) => {
     const files = getSubmissionFileUrls(submission);
+    const isKeep = isExact && Number(submission.SourceRow) === Number(group.recommendedKeepRow);
+    const protectedKeep = exactKeepRows.has(Number(submission.SourceRow));
     return `<div class="duplicate-entry">
-      <label class="duplicate-select"><input type="checkbox" id="duplicateSelect_${Number(submission.SourceRow || 0)}" onchange="toggleDuplicateSelection(${Number(submission.SourceRow || 0)}, this.checked)"> เลือก</label>
+      <label class="duplicate-select"><input type="checkbox" class="duplicate-row-check" data-source-row="${Number(submission.SourceRow || 0)}" ${protectedKeep ? 'disabled' : ''} onchange="toggleDuplicateSelection(${Number(submission.SourceRow || 0)}, this.checked)"> ${protectedKeep ? (isKeep ? 'เก็บไว้' : 'แถวหลักชุดซ้ำ') : 'เลือก'}</label>
       <div class="duplicate-entry-info">
-        <b>${index === 0 ? 'รายการล่าสุด' : 'รายการซ้ำ'} — ${escapeHtml(submission.SubmissionID)}</b>
+        <b>${isExact ? (isKeep ? 'แถวหลัก' : 'สำเนาซ้ำสมบูรณ์') : (index === 0 ? 'รายการล่าสุด' : 'รายการซ้ำ')} — ${escapeHtml(submission.SubmissionID)}</b>
+        <span>แถวที่ ${escapeHtml(submission.SourceRow || '-')}</span>
         <span>วันที่ส่ง: ${escapeHtml(submission.Timestamp || '-')} | สถานะ: ${escapeHtml(submission.CheckedStatus || 'ยังไม่ตรวจ')} | คะแนน: ${escapeHtml(submission.Score || '-')}</span>
         <span>ผู้ส่ง: ${escapeHtml(submission.StudentName || '-')} ${submission.GroupName ? `| กลุ่ม: ${escapeHtml(submission.GroupName)}` : ''}</span>
         ${files.length ? `<div class="duplicate-submitted-previews">${renderSubmittedFilePreview(files, getSubmissionTextWithoutOnlyLinks(submission), { submissionId: submission.SubmissionID, sourceRow: submission.SourceRow, allowDelete: true })}</div>` : ''}
       </div>
       <div class="duplicate-entry-actions">
         ${files[0] ? `<button onclick="window.open('${escapeHtml(files[0])}','_blank')">เปิดงาน</button>` : ''}
-        <button class="danger" onclick="deleteDuplicateSubmission('${escapeHtml(submission.SubmissionID)}', ${Number(submission.SourceRow || 0)})">ลบรายการนี้</button>
+        ${protectedKeep ? '<button class="danger" disabled title="ต้องเก็บแถวหลักของชุดซ้ำสมบูรณ์ไว้">ห้ามลบแถวหลัก</button>' : `<button class="danger" onclick="deleteDuplicateSubmission('${escapeHtml(submission.SubmissionID)}', ${Number(submission.SourceRow || 0)})">ลบรายการนี้</button>`}
       </div>
     </div>`;
   }).join('');
   return `<section class="duplicate-group">
-    <h3>${escapeHtml(group.topic || group.assignmentId)}</h3>
+    <h3>${isExact ? '✅ ซ้ำเหมือนกันทุกช่อง — ' : '⚠️ งานซ้ำแต่ข้อมูลอาจต่างกัน — '}${escapeHtml(group.topic || group.assignmentId)}</h3>
     <div>${escapeHtml(group.level || '')} / ${escapeHtml(group.className || '')} — ${escapeHtml(group.owner || '')} — พบ ${escapeHtml(group.count || 0)} รายการ</div>
-    <div class="student-preview-note">ตรวจสอบวันที่ ไฟล์ คะแนน และสถานะก่อนเลือกลบ ระบบจะไม่ลบรายการใดให้อัตโนมัติ</div>
+    <div class="student-preview-note">${isExact
+      ? 'ระบบตรวจแล้วว่าค่าทุกคอลัมน์ใน Submissions เหมือนกัน โดยกำหนดแถวแรกเป็นแถวหลักและไม่ให้เลือกแถวนั้น ไฟล์จริงใน Drive จะไม่ถูกลบ'
+      : 'ข้อมูลบางช่องแตกต่างกัน กรุณาตรวจสอบวันที่ ไฟล์ คะแนน และสถานะก่อนเลือกลบ ระบบจะไม่ตัดสินใจแทนครู'}</div>
     <div class="duplicate-group-body">
       <div class="duplicate-worksheet">
         <h4>ใบงาน/คำสั่งงานต้นฉบับ</h4>
@@ -1333,8 +1432,7 @@ function toggleDuplicateSelection(sourceRow, checked) {
   const groupRows = (found.group.submissions || []).map(item => Number(item.SourceRow));
   const alreadySelected = groupRows.filter(row => state.selectedDuplicateRows.has(row)).length;
   if (checked && alreadySelected >= groupRows.length - 1) {
-    const checkbox = $(`duplicateSelect_${Number(sourceRow)}`);
-    if (checkbox) checkbox.checked = false;
+    document.querySelectorAll(`.duplicate-row-check[data-source-row="${Number(sourceRow)}"]`).forEach(checkbox => { checkbox.checked = false; });
     showToast('ต้องเหลืองานไว้อย่างน้อย 1 รายการในชุดนี้');
     return;
   }
@@ -1345,20 +1443,45 @@ function toggleDuplicateSelection(sourceRow, checked) {
 
 function selectAllDuplicateExtras() {
   state.selectedDuplicateRows.clear();
+  const exactKeepRows = new Set((state.duplicateGroups || [])
+    .filter(group => group.duplicateType === 'exact')
+    .map(group => Number(group.recommendedKeepRow)));
   (state.duplicateGroups || []).forEach(group => {
     // รายการแรกเป็นรายการล่าสุด จึงเลือกเฉพาะรายการลำดับถัดไป
-    (group.submissions || []).slice(1).forEach(item => state.selectedDuplicateRows.add(Number(item.SourceRow)));
+    (group.submissions || []).slice(1).forEach(item => {
+      const row = Number(item.SourceRow);
+      if (!exactKeepRows.has(row)) state.selectedDuplicateRows.add(row);
+    });
   });
-  document.querySelectorAll('[id^="duplicateSelect_"]').forEach(box => {
-    const row = Number(box.id.replace('duplicateSelect_', ''));
+  document.querySelectorAll('.duplicate-row-check').forEach(box => {
+    const row = Number(box.dataset.sourceRow || 0);
     box.checked = state.selectedDuplicateRows.has(row);
   });
   updateDuplicateSelectedCount();
 }
 
+function selectAllExactDuplicateExtras() {
+  state.selectedDuplicateRows.clear();
+  (state.duplicateGroups || []).filter(group => group.duplicateType === 'exact').forEach(group => {
+    (group.submissions || []).forEach(item => {
+      if (Number(item.SourceRow) !== Number(group.recommendedKeepRow)) {
+        state.selectedDuplicateRows.add(Number(item.SourceRow));
+      }
+    });
+  });
+  document.querySelectorAll('.duplicate-row-check').forEach(box => {
+    const row = Number(box.dataset.sourceRow || 0);
+    box.checked = state.selectedDuplicateRows.has(row);
+  });
+  updateDuplicateSelectedCount();
+  showToast(state.selectedDuplicateRows.size
+    ? `เลือกแถวซ้ำสมบูรณ์แล้ว ${state.selectedDuplicateRows.size} แถว ตรวจสอบแล้วกดลบรายการที่เลือก`
+    : 'ไม่พบแถวซ้ำสมบูรณ์');
+}
+
 function clearDuplicateSelection() {
   state.selectedDuplicateRows.clear();
-  document.querySelectorAll('[id^="duplicateSelect_"]').forEach(box => { box.checked = false; });
+  document.querySelectorAll('.duplicate-row-check').forEach(box => { box.checked = false; });
   updateDuplicateSelectedCount();
 }
 
@@ -1574,7 +1697,16 @@ async function loadStudentWork(returnedOnly=false) {
   try {
     setLoading('กำลังโหลดงานของฉัน...');
     const data = await apiGet({ action: 'studentWork', userId: state.user.UserID });
-    const list = (data.work || []).filter(w => !returnedOnly || w.submission?.ReturnStatus === 'ส่งคืน');
+    const allWork = data.work || [];
+    // studentWork คือข้อมูลล่าสุดของหน้านี้ จึงต้องซิงก์กลับเข้า state.assignments
+    // ด้วย เพราะ session cache อาจถูกสร้างก่อนครูเพิ่ม/แก้ไขงาน
+    const assignmentMap = new Map((state.assignments || []).map(a => [String(a.AssignmentID || ''), a]));
+    allWork.forEach(w => {
+      const assignment = w?.assignment;
+      if (assignment?.AssignmentID) assignmentMap.set(String(assignment.AssignmentID), assignment);
+    });
+    state.assignments = Array.from(assignmentMap.values());
+    const list = allWork.filter(w => !returnedOnly || w.submission?.ReturnStatus === 'ส่งคืน');
     state.studentWorkByAssignment = new Map(list.map(w => [String(w.assignment?.AssignmentID || ''), w]));
     $('content').innerHTML = `<div class="card-list">${list.map(renderStudentWorkCard).join('') || '<div class="hero-empty">ไม่พบงาน</div>'}</div>`;
   } catch (err) { showToast(err.message); }
@@ -1585,6 +1717,7 @@ function renderStudentWorkCard(w) {
   const groupMissing = a.WorkType === 'งานกลุ่ม' && !w.group;
   const canSubmit = a.Status === 'เปิดใช้งาน' && !groupMissing;
   const previewId = `studentWorkPreview_${a.AssignmentID}`;
+  const online = isOnlineWorksheet(a);
   return `<article class="layout-card">
     <div class="slot-note">${s ? '(งานที่ส่งแล้ว)' : '(ใบงาน)'}</div>
     <div class="card-icons">
@@ -1598,8 +1731,7 @@ function renderStudentWorkCard(w) {
       ${groupMissing ? '<div class="group-warning"><b>ยังไม่ได้จัดกลุ่ม</b><br>กรุณาแจ้งครูก่อนกรอกหรือส่งงาน</div>' : ''}
       <div>สถานะส่ง: <span class="status-pill">${s ? 'ส่งแล้ว' : 'ยังไม่ส่ง'}</span> ${s ? `<span class="status-pill">${escapeHtml(s.CheckedStatus || '')}</span> <span class="status-pill">คะแนน ${escapeHtml(s.Score || '-')}</span>` : ''}</div>
       ${s ? '<div class="submitted-summary"><b>งานที่ส่งแล้วจะแสดงอยู่ฝั่งซ้าย</b></div>' : ''}
-      <label>คำตอบ/ข้อความส่งงาน <textarea id="workText_${a.AssignmentID}" ${canSubmit?'':'disabled'}>${escapeHtml(s?.WorkText || '')}</textarea></label>
-      <label>แนบไฟล์ <input id="file_${a.AssignmentID}" type="file" multiple ${canSubmit?'':'disabled'}></label>
+      ${online ? renderOnlineWorksheetForm(a, s, canSubmit) : `<label>คำตอบ/ข้อความส่งงาน <textarea id="workText_${a.AssignmentID}" ${canSubmit?'':'disabled'}>${escapeHtml(s?.WorkText || '')}</textarea></label><label>แนบไฟล์ <input id="file_${a.AssignmentID}" type="file" multiple ${canSubmit?'':'disabled'}></label>`}
       <div class="detail-actions">
         ${canSubmit ? `<button onclick="submitStudentWork('${a.AssignmentID}')">${s ? 'ส่งแก้ไข/ส่งใหม่' : 'ส่งงาน'}</button>` : `<button disabled>${groupMissing ? 'ยังไม่ได้จัดกลุ่ม' : 'งานปิดการใช้งาน'}</button>`}
         <button onclick="showAssignmentInfo('${a.AssignmentID}')">ดูคำสั่งงาน</button>
@@ -1608,6 +1740,38 @@ function renderStudentWorkCard(w) {
       ${s?.ReturnStatus === 'ส่งคืน' ? `<div><b>ครูส่งคืน:</b> ${escapeHtml(s.ReturnNote || '')}</div>` : ''}
     </div>
   </article>`;
+}
+
+function renderOnlineWorksheetForm(a, submission, enabled) {
+  const schema = parseWorksheetSchema(a);
+  const answers = parseWorksheetAnswers(submission);
+  if (!schema.questions.length) return '<div class="group-warning">ใบงานนี้ยังไม่มีช่องคำตอบ กรุณาแจ้งครู</div>';
+  return `<div class="online-worksheet-form" data-assignment-id="${escapeHtml(a.AssignmentID)}">${schema.questions.map((q, index) => {
+    const value = answers[q.id];
+    const disabled = enabled ? '' : 'disabled';
+    const required = q.required ? '<span class="required-mark">*</span>' : '';
+    let input = '';
+    if (q.type === 'long') input = `<textarea data-question-id="${escapeHtml(q.id)}" ${disabled}>${escapeHtml(value || '')}</textarea>`;
+    else if (q.type === 'radio') input = `<div class="answer-options">${(q.options || []).map(opt => `<label><input type="radio" name="answer_${escapeHtml(a.AssignmentID)}_${escapeHtml(q.id)}" data-question-id="${escapeHtml(q.id)}" value="${escapeHtml(opt)}" ${String(value||'')===String(opt)?'checked':''} ${disabled}> ${escapeHtml(opt)}</label>`).join('')}</div>`;
+    else if (q.type === 'checkbox') input = `<div class="answer-options">${(q.options || []).map(opt => `<label><input type="checkbox" data-question-id="${escapeHtml(q.id)}" value="${escapeHtml(opt)}" ${Array.isArray(value)&&value.includes(opt)?'checked':''} ${disabled}> ${escapeHtml(opt)}</label>`).join('')}</div>`;
+    else input = `<input type="${q.type === 'number' ? 'number' : 'text'}" data-question-id="${escapeHtml(q.id)}" value="${escapeHtml(value || '')}" ${disabled}>`;
+    return `<div class="online-question" data-question-type="${escapeHtml(q.type)}"><label><b>${index + 1}. ${escapeHtml(q.label)} ${required}</b>${input}</label></div>`;
+  }).join('')}</div>`;
+}
+
+function collectWorksheetAnswers(assignmentId) {
+  const root = document.querySelector(`.online-worksheet-form[data-assignment-id="${CSS.escape(String(assignmentId))}"]`);
+  const answers = {};
+  if (!root) return answers;
+  root.querySelectorAll('.online-question').forEach(question => {
+    const inputs = Array.from(question.querySelectorAll('[data-question-id]'));
+    if (!inputs.length) return;
+    const id = inputs[0].dataset.questionId;
+    if (question.dataset.questionType === 'checkbox') answers[id] = inputs.filter(input => input.checked).map(input => input.value);
+    else if (question.dataset.questionType === 'radio') answers[id] = inputs.find(input => input.checked)?.value || '';
+    else answers[id] = inputs[0].value;
+  });
+  return answers;
 }
 
 function toggleStudentWorkPreview(assignmentId) {
@@ -1668,19 +1832,25 @@ async function submitStudentWork(assignmentId) {
   const requestId = getOrCreateSubmissionRequestId(assignmentId);
   let submissionConfirmed = false;
   try {
+    const assignment = getAssignment(assignmentId)
+      || state.studentWorkByAssignment.get(key)?.assignment;
+    if (!assignment) {
+      throw new Error('ข้อมูลงานเปลี่ยนแปลงหรือยังโหลดไม่ครบ กรุณากดรีเฟรชงานแล้วลองใหม่');
+    }
+    const online = isOnlineWorksheet(assignment);
     const input = $(`file_${assignmentId}`);
-    const selectedFiles = validateStudentUploadFiles(input.files);
+    const selectedFiles = online ? [] : validateStudentUploadFiles(input?.files);
     const files = [];
     for (let i = 0; i < selectedFiles.length; i += 1) {
       showToast(`กำลังเตรียมไฟล์ ${i + 1} จาก ${selectedFiles.length}...`, { persistent: true, loading: true });
       files.push(await fileToPayload(selectedFiles[i]));
     }
-    const workText = $(`workText_${assignmentId}`).value;
-    if (!String(workText || '').trim() && !files.length) return showToast('กรุณาพิมพ์คำตอบหรือแนบไฟล์ก่อนส่งงาน');
-    const assignment = getAssignment(assignmentId);
-    const submitMode = assignment.WorkType === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
+    const workText = online ? '' : ($(`workText_${assignmentId}`)?.value || '');
+    const worksheetAnswers = online ? collectWorksheetAnswers(assignmentId) : null;
+    if (!online && !String(workText || '').trim() && !files.length) return showToast('กรุณาพิมพ์คำตอบหรือแนบไฟล์ก่อนส่งงาน');
+    const submitMode = String(assignment.WorkType || '').trim() === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
     showToast('กำลังอัปโหลดและบันทึกงาน กรุณาอย่าปิดหน้านี้...', { persistent: true, loading: true });
-    const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, workText, files });
+    const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, workText, worksheetAnswers, files });
     if (!data.verified || !data.submission?.SubmissionID) throw new Error('ระบบยังยืนยันงานที่บันทึกไม่ได้ กรุณาอย่ากดส่งซ้ำและแจ้งครู');
     submissionConfirmed = true;
     clearSubmissionRequestId(assignmentId);
