@@ -24,6 +24,8 @@ const state = {
   submissionsInFlight: new Set()
 };
 const ALL_OPTION = '__ALL__';
+const MATRIX_V2_WEB_VERSION = '2026.09.18-theme-layout';
+const MATRIX_V2_WEB_UPDATED_AT = '2026-09-18 09:20:28 +07';
 
 const PAGE_TITLES = {
   assignments: 'คำสั่งงาน',
@@ -106,11 +108,13 @@ function hexToRgb(hex) {
 function applyTheme(user) {
   const accent = normalizeHexColor(user?.AccentColor || '#22C55E');
   const bg = normalizeHexColor(user?.BackgroundColor || '#000000', '#000000');
+  const navigation = normalizeHexColor(user?.NavigationColor || '#001407', '#001407');
   const [r, g, b] = hexToRgb(accent);
   document.documentElement.style.setProperty('--accent', accent);
   document.documentElement.style.setProperty('--line', accent);
   document.documentElement.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
   document.documentElement.style.setProperty('--bg', bg);
+  document.documentElement.style.setProperty('--nav-bg', navigation);
   document.documentElement.style.setProperty('--toolbar-bg', `rgba(${r}, ${g}, ${b}, .34)`);
   document.documentElement.style.setProperty('--toolbar-border', `rgba(${r}, ${g}, ${b}, .96)`);
   document.documentElement.style.setProperty('--layout-panel-bg', `rgba(${r}, ${g}, ${b}, .24)`);
@@ -222,6 +226,12 @@ function renderCurrentPage() {
 function syncToolbarHeight() {
   const tb = $('pageToolbar');
   if (!tb) return;
+  const hasContent = tb.childElementCount > 0 || String(tb.textContent || '').trim() !== '';
+  tb.classList.toggle('toolbar-empty', !hasContent);
+  if (!hasContent) {
+    document.documentElement.style.setProperty('--toolbar-h', '0px');
+    return;
+  }
   // ล้างค่าความสูงจากหน้าก่อนก่อนวัด ไม่เช่นนั้น min-height เดิมจะทำให้
   // แถบเครื่องมือหน้าที่มีเนื้อหาน้อยยังคงสูงเกินจำเป็น
   document.documentElement.style.setProperty('--toolbar-h', '0px');
@@ -1284,36 +1294,33 @@ function batchScoreCustomScore() {
 }
 function exportScoreImage() { showToast('เตรียมไว้สำหรับ V2 รอบต่อไป: บันทึกตารางเป็นรูปภาพ'); }
 
+function renderThemeSettingsCard(user, studentMode=false) {
+  return `<div class="system-card theme-system-card">
+    <h3>${studentMode ? 'ตกแต่งหน้าของฉัน' : 'เปลี่ยนสีธีม'}</h3>
+    <p>สีที่เลือกจะบันทึกเฉพาะบัญชีนี้ ไม่กระทบบัญชีอื่น</p>
+    <div class="theme-form">
+      <div class="theme-primary-row">
+        <label>สีธีมหลัก<input id="themeAccent" type="color" value="${escapeHtml(normalizeHexColor(user.AccentColor || '#22C55E'))}"></label>
+        <label>สีพื้นหลัง<input id="themeBg" type="color" value="${escapeHtml(normalizeHexColor(user.BackgroundColor || '#000000', '#000000'))}"></label>
+        <button type="button" onclick="previewThemeFromForm()">แสดงตัวอย่างธีม</button>
+      </div>
+      <label>สีแถบเมนูและส่วนหัว (บริเวณที่วงสีชมพู)<input id="themeNavigation" type="color" value="${escapeHtml(normalizeHexColor(user.NavigationColor || '#001407', '#001407'))}"></label>
+      <label>ลิงก์รูปพื้นหลัง<input id="themeBgImage" value="${escapeHtml(user.BackgroundImageURL || '')}" placeholder="https://..."></label>
+      <div class="theme-swatch-list">${themeSwatch('#22C55E')}${themeSwatch('#38BDF8')}${themeSwatch('#A855F7')}${themeSwatch('#EC4899')}${themeSwatch('#F97316')}${themeSwatch('#FACC15')}${themeSwatch('#EF4444')}</div>
+      <small>สีธีมใช้กับปุ่ม กรอบการ์ด และตารางคะแนน ส่วนสีแถบเมนูจะใช้กับแถบซ้ายและส่วนหัวด้านบน</small>
+      <div class="theme-card-actions theme-reset-row"><button type="button" onclick="resetThemeForm()">กลับค่าเริ่มต้น</button><button type="button" onclick="saveThemeSettings()">${studentMode ? 'บันทึกสีของฉัน' : 'บันทึกธีมบัญชี'}</button></div>
+    </div>
+  </div>`;
+}
+
 function renderSettingsPage() {
   const user = state.user || {};
-  $('pageToolbar').innerHTML = `
-    <button onclick="previewThemeFromForm()">แสดงตัวอย่างธีม</button>
-    <button onclick="saveThemeSettings()">บันทึกธีมบัญชี</button>
-  `;
+  $('pageToolbar').innerHTML = '';
   syncToolbarHeight();
   $('content').innerHTML = `
     <div class="settings-grid">
-      <div class="system-card">
-        <h3>เปลี่ยนสีธีม</h3>
-        <div class="theme-form">
-          <div class="theme-row">
-            <label>สีธีมหลัก
-              <input id="themeAccent" type="color" value="${escapeHtml(normalizeHexColor(user.AccentColor || '#22C55E'))}">
-            </label>
-            <label>สีพื้นหลัง
-              <input id="themeBg" type="color" value="${escapeHtml(normalizeHexColor(user.BackgroundColor || '#000000', '#000000'))}">
-            </label>
-          </div>
-          <label>ลิงก์รูปพื้นหลัง
-            <input id="themeBgImage" value="${escapeHtml(user.BackgroundImageURL || '')}" placeholder="https://...">
-          </label>
-          <div class="theme-swatch-list">
-            ${themeSwatch('#22C55E')}${themeSwatch('#38BDF8')}${themeSwatch('#A855F7')}${themeSwatch('#EC4899')}${themeSwatch('#F97316')}${themeSwatch('#FACC15')}${themeSwatch('#EF4444')}
-          </div>
-          <small>สีธีมจะใช้กับแถบเครื่องมือ กรอบการ์ดแบบมองทะลุ ปุ่ม และสีตารางคะแนนของบัญชีนี้</small>
-        </div>
-      </div>
-      <div class="system-card">
+      ${renderThemeSettingsCard(user, false)}
+      <div class="system-card system-card-wide">
         <h3>ดึงงานเก่าจากระบบเดิม</h3>
         <p>ใช้สำหรับนำข้อมูลงานที่นักเรียนเคยส่งในระบบเดิมมาเก็บรวมในชีต <b>Submissions</b> ของ V2</p>
         <div class="theme-form">
@@ -1329,16 +1336,22 @@ function renderSettingsPage() {
             <button onclick="importLegacyWork()">ดึงงานเก่าเข้า V2</button>
           </div>
           <div id="legacyImportResult" class="student-preview-note">ยังไม่ได้ตรวจสอบไฟล์ระบบเก่า</div>
+          <hr>
+          <h3>ตรวจสอบและซิงก์ข้อมูลงานกลุ่ม</h3>
+          <p>จับคู่งานส่งด้วย GroupID หรือชุด MemberIDs แล้วปรับชื่อกลุ่ม ชื่อสมาชิก และผู้ส่งให้ตรงกับระบบปัจจุบัน</p>
+          <div class="detail-actions"><button onclick="previewGroupSync()">ตรวจสอบก่อนซิงก์</button><button onclick="applyGroupSync()">ยืนยันการซิงก์</button></div>
+          <div id="groupSyncResult" class="student-preview-note">ยังไม่ได้ตรวจสอบข้อมูลงานกลุ่ม</div>
         </div>
       </div>
       <div class="system-card">
-        <h3>ตรวจสอบและซิงก์ข้อมูลงานกลุ่ม</h3>
-        <p>จับคู่งานส่งด้วย GroupID หรือชุด MemberIDs แล้วปรับชื่อกลุ่ม ชื่อสมาชิก และข้อมูลผู้ส่งให้ตรงกับระบบปัจจุบัน</p>
-        <div class="detail-actions">
-          <button onclick="previewGroupSync()">ตรวจสอบก่อนซิงก์</button>
-          <button onclick="applyGroupSync()">ยืนยันการซิงก์</button>
+        <h3>ข้อมูลการอัปเดตระบบ</h3>
+        <div class="update-meta">
+          <div class="update-meta-row"><b>หน้าเว็บ GitHub</b><span>${escapeHtml(MATRIX_V2_WEB_UPDATED_AT)}</span></div>
+          <div class="update-meta-row"><b>เวอร์ชันหน้าเว็บ</b><span>${escapeHtml(MATRIX_V2_WEB_VERSION)}</span></div>
+          <div class="update-meta-row"><b>Apps Script</b><span>${escapeHtml(state.bootstrap?.backendUpdatedAt || 'ยังไม่ได้ Deploy ชุดรองรับเวอร์ชัน')}</span></div>
+          <div class="update-meta-row"><b>เวอร์ชัน Backend</b><span>${escapeHtml(state.bootstrap?.backendVersion || '-')}</span></div>
+          <div class="update-meta-row"><b>สถานะเวอร์ชัน</b><span class="status-pill">${state.bootstrap?.backendVersion === MATRIX_V2_WEB_VERSION ? 'ตรงกัน' : 'ควรตรวจสอบ/รีเฟรช'}</span></div>
         </div>
-        <div id="groupSyncResult" class="student-preview-note">ยังไม่ได้ตรวจสอบข้อมูลงานกลุ่ม</div>
       </div>
     </div>`;
 }
@@ -1529,33 +1542,9 @@ async function repairDuplicateSubmissionIds() {
 
 function renderStudentThemePage() {
   const user = state.user || {};
-  $('pageToolbar').innerHTML = `
-    <button onclick="previewThemeFromForm()">แสดงตัวอย่าง</button>
-    <button onclick="saveThemeSettings()">บันทึกสีของฉัน</button>
-    <button onclick="resetThemeForm()">กลับค่าเริ่มต้น</button>
-  `;
+  $('pageToolbar').innerHTML = '';
   syncToolbarHeight();
-  $('content').innerHTML = `
-    <div class="settings-grid">
-      <div class="system-card">
-        <h3>ตกแต่งหน้าของฉัน</h3>
-        <p>สีที่เลือกจะบันทึกเฉพาะบัญชีของนักเรียนคนนี้ ไม่เปลี่ยนสีของครูหรือเพื่อนคนอื่น</p>
-        <div class="theme-form">
-          <div class="theme-row">
-            <label>สีธีมหลัก
-              <input id="themeAccent" type="color" value="${escapeHtml(normalizeHexColor(user.AccentColor || '#22C55E'))}">
-            </label>
-            <label>สีพื้นหลัง
-              <input id="themeBg" type="color" value="${escapeHtml(normalizeHexColor(user.BackgroundColor || '#000000', '#000000'))}">
-            </label>
-          </div>
-          <div class="theme-swatch-list">
-            ${themeSwatch('#22C55E')}${themeSwatch('#38BDF8')}${themeSwatch('#A855F7')}${themeSwatch('#EC4899')}${themeSwatch('#F97316')}${themeSwatch('#FACC15')}${themeSwatch('#EF4444')}
-          </div>
-          <small>กดแสดงตัวอย่างก่อน แล้วกดบันทึกสีของฉันเพื่อใช้สีนี้ในการเข้าสู่ระบบครั้งต่อไป</small>
-        </div>
-      </div>
-    </div>`;
+  $('content').innerHTML = `<div class="settings-grid">${renderThemeSettingsCard(user, true)}</div>`;
 }
 
 function renderGroupSyncResult(data) {
@@ -1605,6 +1594,7 @@ function getThemeFromForm() {
     AccentColor: normalizeHexColor($('themeAccent')?.value || state.user?.AccentColor || '#22C55E'),
     BackgroundColor: normalizeHexColor($('themeBg')?.value || state.user?.BackgroundColor || '#000000', '#000000'),
     BackgroundImageURL: $('themeBgImage')?.value?.trim() || '',
+    NavigationColor: normalizeHexColor($('themeNavigation')?.value || state.user?.NavigationColor || '#001407', '#001407'),
     ThemeColor: normalizeHexColor($('themeAccent')?.value || state.user?.AccentColor || '#22C55E')
   };
 }
@@ -1617,6 +1607,7 @@ function resetThemeForm() {
   if ($('themeAccent')) $('themeAccent').value = '#22C55E';
   if ($('themeBg')) $('themeBg').value = '#000000';
   if ($('themeBgImage')) $('themeBgImage').value = '';
+  if ($('themeNavigation')) $('themeNavigation').value = '#001407';
   previewThemeFromForm();
 }
 async function saveThemeSettings() {
@@ -1697,16 +1688,7 @@ async function loadStudentWork(returnedOnly=false) {
   try {
     setLoading('กำลังโหลดงานของฉัน...');
     const data = await apiGet({ action: 'studentWork', userId: state.user.UserID });
-    const allWork = data.work || [];
-    // studentWork คือข้อมูลล่าสุดของหน้านี้ จึงต้องซิงก์กลับเข้า state.assignments
-    // ด้วย เพราะ session cache อาจถูกสร้างก่อนครูเพิ่ม/แก้ไขงาน
-    const assignmentMap = new Map((state.assignments || []).map(a => [String(a.AssignmentID || ''), a]));
-    allWork.forEach(w => {
-      const assignment = w?.assignment;
-      if (assignment?.AssignmentID) assignmentMap.set(String(assignment.AssignmentID), assignment);
-    });
-    state.assignments = Array.from(assignmentMap.values());
-    const list = allWork.filter(w => !returnedOnly || w.submission?.ReturnStatus === 'ส่งคืน');
+    const list = (data.work || []).filter(w => !returnedOnly || w.submission?.ReturnStatus === 'ส่งคืน');
     state.studentWorkByAssignment = new Map(list.map(w => [String(w.assignment?.AssignmentID || ''), w]));
     $('content').innerHTML = `<div class="card-list">${list.map(renderStudentWorkCard).join('') || '<div class="hero-empty">ไม่พบงาน</div>'}</div>`;
   } catch (err) { showToast(err.message); }
@@ -1832,11 +1814,7 @@ async function submitStudentWork(assignmentId) {
   const requestId = getOrCreateSubmissionRequestId(assignmentId);
   let submissionConfirmed = false;
   try {
-    const assignment = getAssignment(assignmentId)
-      || state.studentWorkByAssignment.get(key)?.assignment;
-    if (!assignment) {
-      throw new Error('ข้อมูลงานเปลี่ยนแปลงหรือยังโหลดไม่ครบ กรุณากดรีเฟรชงานแล้วลองใหม่');
-    }
+    const assignment = getAssignment(assignmentId);
     const online = isOnlineWorksheet(assignment);
     const input = $(`file_${assignmentId}`);
     const selectedFiles = online ? [] : validateStudentUploadFiles(input?.files);
@@ -1848,7 +1826,7 @@ async function submitStudentWork(assignmentId) {
     const workText = online ? '' : ($(`workText_${assignmentId}`)?.value || '');
     const worksheetAnswers = online ? collectWorksheetAnswers(assignmentId) : null;
     if (!online && !String(workText || '').trim() && !files.length) return showToast('กรุณาพิมพ์คำตอบหรือแนบไฟล์ก่อนส่งงาน');
-    const submitMode = String(assignment.WorkType || '').trim() === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
+    const submitMode = assignment.WorkType === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
     showToast('กำลังอัปโหลดและบันทึกงาน กรุณาอย่าปิดหน้านี้...', { persistent: true, loading: true });
     const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, workText, worksheetAnswers, files });
     if (!data.verified || !data.submission?.SubmissionID) throw new Error('ระบบยังยืนยันงานที่บันทึกไม่ได้ กรุณาอย่ากดส่งซ้ำและแจ้งครู');
