@@ -24,8 +24,8 @@ const state = {
   submissionsInFlight: new Set()
 };
 const ALL_OPTION = '__ALL__';
-const MATRIX_V2_WEB_VERSION = '2026.09.18-theme-layout';
-const MATRIX_V2_WEB_UPDATED_AT = '2026-09-18 09:20:28 +07';
+const MATRIX_V2_WEB_VERSION = '2026.09.18-legacy-group-members';
+const MATRIX_V2_WEB_UPDATED_AT = '2026-09-18 15:50:00 +07';
 
 const PAGE_TITLES = {
   assignments: 'คำสั่งงาน',
@@ -568,6 +568,7 @@ function toggleWorksheet(id) {
 function showAssignmentInfo(id) {
   const a = getAssignment(id);
   if (!a) return;
+  const scoreLine = state.user?.Role === 'student' ? '' : `\nคะแนนเต็ม: ${a.FullScore || '-'}`;
   alert(`คำสั่งงาน
 
 ${a.Topic}
@@ -575,7 +576,7 @@ ${a.Topic}
 ${a.Description || 'ไม่มีคำอธิบาย'}
 
 รูปแบบคำสั่ง: ${assignmentInstructionType(a)}
-คะแนนเต็ม: ${a.FullScore || '-'}
+${scoreLine}
 ห้อง: ${a.AssignedClasses || '-'}`);
 }
 async function toggleAssignmentStatus(id, status) {
@@ -923,17 +924,23 @@ function parsedIndividualScores(s) {
   try { return JSON.parse(s?.IndividualScores || '{}') || {}; } catch (err) { return {}; }
 }
 
+function parsedStudentParticipation(s) {
+  if (s?.StudentParticipation && typeof s.StudentParticipation === 'object') return s.StudentParticipation;
+  try { return JSON.parse(s?.StudentParticipation || '{}') || {}; } catch (err) { return {}; }
+}
+
 function renderIndividualGroupScorePanel(s) {
   if (String(s.SubmitMode || '') !== 'กลุ่ม') return '';
   const ids = csv(s.MemberIDs);
   const names = csv(s.MemberNames);
   const saved = parsedIndividualScores(s);
+  const studentReported = parsedStudentParticipation(s);
   if (!ids.length) return '<div class="group-warning">งานกลุ่มนี้ยังไม่มีรหัสสมาชิก กรุณาซิงก์ข้อมูลกลุ่มก่อน</div>';
   const rows = ids.map((id, index) => {
     const item = saved[id] || {};
     const participation = item.participation || 'ปกติ';
     return `<div class="individual-score-row" data-student-id="${escapeHtml(id)}">
-      <div><b>${escapeHtml(names[index] || id)}</b><small>${escapeHtml(id)}</small></div>
+      <div><b>${escapeHtml(names[index] || id)}</b><small>${escapeHtml(id)}</small><small>นักเรียนแจ้งว่า: ${escapeHtml(studentReported[id] || 'ยังไม่ระบุ')}</small></div>
       <select class="member-participation">
         ${['มาก','ปกติ','น้อย'].map(value => `<option ${participation===value?'selected':''}>${value}</option>`).join('')}
       </select>
@@ -1708,10 +1715,11 @@ function renderStudentWorkCard(w) {
     <div class="work-preview" id="${previewId}" data-loaded="0"><button onclick="toggleStudentWorkPreview('${a.AssignmentID}')">กดเพื่อแสดง${s ? 'งานที่ส่งแล้ว' : 'ใบงานหรือคำสั่ง'}</button></div>
     <div class="detail-panel">
       <h3>${escapeHtml(a.Topic)}</h3>
-      <div>คะแนนเต็ม ${escapeHtml(a.FullScore || '-')} | สถานะงาน <span class="status-pill">${escapeHtml(a.Status || '')}</span></div>
+      <div>สถานะงาน <span class="status-pill">${escapeHtml(a.Status || '')}</span></div>
       <div>ประเภท: ${escapeHtml(a.WorkType)} | รูปแบบคำสั่ง: ${escapeHtml(assignmentInstructionType(a))} ${w.group ? `<br>กลุ่ม: ${escapeHtml(w.group.GroupName)}<br>สมาชิก: ${escapeHtml(w.group.MemberNames)}` : ''}</div>
       ${groupMissing ? '<div class="group-warning"><b>ยังไม่ได้จัดกลุ่ม</b><br>กรุณาแจ้งครูก่อนกรอกหรือส่งงาน</div>' : ''}
-      <div>สถานะส่ง: <span class="status-pill">${s ? 'ส่งแล้ว' : 'ยังไม่ส่ง'}</span> ${s ? `<span class="status-pill">${escapeHtml(s.CheckedStatus || '')}</span> <span class="status-pill">คะแนน ${escapeHtml(s.Score || '-')}</span>` : ''}</div>
+      <div>สถานะส่ง: <span class="status-pill">${s ? 'ส่งแล้ว' : 'ยังไม่ส่ง'}</span> ${s ? `<span class="status-pill">${escapeHtml(s.CheckedStatus || 'ยังไม่ตรวจ')}</span>${s.ReturnStatus === 'ส่งคืน' ? ' <span class="status-pill">ส่งคืน</span>' : ''}` : ''}</div>
+      ${a.WorkType === 'งานกลุ่ม' && w.group ? renderStudentParticipationControl(a, s) : ''}
       ${s ? '<div class="submitted-summary"><b>งานที่ส่งแล้วจะแสดงอยู่ฝั่งซ้าย</b></div>' : ''}
       ${online ? renderOnlineWorksheetForm(a, s, canSubmit) : `<label>คำตอบ/ข้อความส่งงาน <textarea id="workText_${a.AssignmentID}" ${canSubmit?'':'disabled'}>${escapeHtml(s?.WorkText || '')}</textarea></label><label>แนบไฟล์ <input id="file_${a.AssignmentID}" type="file" multiple ${canSubmit?'':'disabled'}></label>`}
       <div class="detail-actions">
@@ -1722,6 +1730,27 @@ function renderStudentWorkCard(w) {
       ${s?.ReturnStatus === 'ส่งคืน' ? `<div><b>ครูส่งคืน:</b> ${escapeHtml(s.ReturnNote || '')}</div>` : ''}
     </div>
   </article>`;
+}
+
+function renderStudentParticipationControl(assignment, submission) {
+  const value = submission?.StudentParticipation || 'ปานกลาง';
+  return `<div class="student-participation-box">
+    <label><b>การมีส่วนร่วมของฉันในงานกลุ่ม</b>
+      <select id="participation_${escapeHtml(assignment.AssignmentID)}">
+        ${['มาก','ปานกลาง','น้อย'].map(item => `<option value="${item}" ${item===value?'selected':''}>${item}</option>`).join('')}
+      </select>
+    </label>
+    ${submission?.SubmissionID ? `<button type="button" onclick="saveStudentGroupParticipation('${escapeHtml(submission.SubmissionID)}','${escapeHtml(assignment.AssignmentID)}')">บันทึกการมีส่วนร่วม</button>` : '<small>ข้อมูลนี้จะบันทึกพร้อมการส่งงาน</small>'}
+  </div>`;
+}
+
+async function saveStudentGroupParticipation(submissionId, assignmentId) {
+  const participation = $(`participation_${assignmentId}`)?.value || 'ปานกลาง';
+  try {
+    showToast('กำลังบันทึกการมีส่วนร่วม...', { persistent: true, loading: true });
+    await apiPost({ action: 'saveStudentGroupParticipation', submissionId, userId: state.user.UserID, participation });
+    showToast('บันทึกการมีส่วนร่วมแล้ว');
+  } catch (err) { showToast(err.message); }
 }
 
 function renderOnlineWorksheetForm(a, submission, enabled) {
@@ -1828,7 +1857,8 @@ async function submitStudentWork(assignmentId) {
     if (!online && !String(workText || '').trim() && !files.length) return showToast('กรุณาพิมพ์คำตอบหรือแนบไฟล์ก่อนส่งงาน');
     const submitMode = assignment.WorkType === 'งานกลุ่ม' ? 'กลุ่ม' : 'เดี่ยว';
     showToast('กำลังอัปโหลดและบันทึกงาน กรุณาอย่าปิดหน้านี้...', { persistent: true, loading: true });
-    const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, workText, worksheetAnswers, files });
+    const participation = submitMode === 'กลุ่ม' ? ($(`participation_${assignmentId}`)?.value || 'ปานกลาง') : '';
+    const data = await apiPost({ action: 'submitWork', requestId, userId: state.user.UserID, assignmentId, submitMode, participation, workText, worksheetAnswers, files });
     if (!data.verified || !data.submission?.SubmissionID) throw new Error('ระบบยังยืนยันงานที่บันทึกไม่ได้ กรุณาอย่ากดส่งซ้ำและแจ้งครู');
     submissionConfirmed = true;
     clearSubmissionRequestId(assignmentId);
