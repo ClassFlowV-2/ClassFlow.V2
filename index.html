@@ -155,6 +155,7 @@
     .duplicate-bulk-toolbar { position: sticky; top: var(--header-offset,0); z-index: 6; display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 12px 18px; background: rgba(0,0,0,.88); border-bottom: 1px solid var(--line); }
     .duplicate-group { border: var(--border); background: rgba(0,0,0,.78); padding: 18px; display: grid; gap: 14px; }
     .duplicate-group h3 { margin: 0; color: var(--line); }
+    .duplicate-bulk-toolbar span { color: #fff; font-weight: 800; }
     .duplicate-group-body { display: grid; grid-template-columns: minmax(320px,420px) minmax(0,1fr); gap: 18px; align-items: start; }
     .duplicate-worksheet { display: grid; gap: 8px; position: sticky; top: calc(var(--header-h) + var(--toolbar-h) + 12px); }
     .duplicate-worksheet h4 { margin: 0; color: #fff; }
@@ -167,6 +168,35 @@
     .duplicate-submitted-previews { margin-top: 8px; }
     .duplicate-submitted-previews iframe { height: 260px; }
     .duplicate-entry-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+    .modal-backdrop { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.72); }
+    .modal-card { width: min(980px, 100%); max-height: calc(100vh - 40px); overflow: auto; background: #e8eef4; color: #111827; border: 3px solid var(--line); padding: 20px; }
+    .modal-card input, .modal-card select, .modal-card textarea { width: 100%; background: #fff; color: #111; border-color: #475569; }
+    .modal-card label { color: #1f2937; font-weight: 750; }
+    .modal-head, .builder-head, .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .modal-head h2, .builder-head h3 { margin: 0; }
+    .assignment-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+    .assignment-form-grid .full-row { grid-column: 1 / -1; }
+    .class-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 10px; background: #fff; border: 1px solid #94a3b8; }
+    .inline-check { display: inline-flex !important; grid-template-columns: none; align-items: center; gap: 7px; }
+    .inline-check input { width: 20px !important; min-height: 20px; }
+    .question-builder { margin-top: 18px; border-top: 2px solid #64748b; padding-top: 16px; }
+    #aeQuestions { display: grid; gap: 12px; margin-top: 12px; }
+    .question-builder-row { display: grid; grid-template-columns: minmax(240px,1.5fr) minmax(150px,.7fr) minmax(190px,1fr) auto auto; gap: 10px; align-items: end; padding: 12px; border: 1px solid #94a3b8; background: #f8fafc; }
+    .modal-actions { justify-content: flex-end; margin-top: 18px; border-top: 1px solid #94a3b8; padding-top: 14px; }
+    .online-worksheet-form { display: grid; gap: 12px; padding: 14px; background: #f8fafc; border: 2px solid #64748b; }
+    .online-question { border-bottom: 1px solid #cbd5e1; padding-bottom: 12px; }
+    .online-question:last-child { border-bottom: 0; padding-bottom: 0; }
+    .answer-options { display: flex; flex-wrap: wrap; gap: 10px 18px; padding-top: 8px; }
+    .answer-options label { display: inline-flex; align-items: center; gap: 6px; color: #111; }
+    .answer-options input { width: 20px; min-height: 20px; }
+    .required-mark { color: #dc2626; }
+    .worksheet-answer-summary { width: 100%; align-self: stretch; overflow: auto; background: rgba(255,255,255,.85); padding: 14px; }
+    .worksheet-answer-summary h4 { margin: 0 0 10px; }
+    .worksheet-answer-row { padding: 9px 0; border-bottom: 1px solid #94a3b8; }
+    .worksheet-answer-row:last-child { border-bottom: 0; }
+    .worksheet-answer-row > div { margin-top: 4px; white-space: pre-wrap; }
+    .answer-empty { color: #64748b; }
 
     .toast { position: fixed; right: 18px; bottom: 18px; max-width: 460px; background: #001805; color: var(--line); border: var(--border); padding: 14px 18px; z-index: 200; display: none; }
     .toast.show { display: block; }
@@ -185,6 +215,8 @@
       .duplicate-worksheet { position: static; }
       .duplicate-entry { grid-template-columns: auto minmax(0,1fr); }
       .duplicate-entry-actions { grid-column: 1 / -1; justify-content: flex-end; }
+      .assignment-form-grid, .question-builder-row { grid-template-columns: 1fr; }
+      .question-builder-row .qb-options-wrap { grid-column: auto; }
     }
   </style>
 </head>
