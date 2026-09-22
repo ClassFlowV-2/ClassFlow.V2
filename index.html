@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Class Flow V.2 — เข้าสู่ระบบ</title>
+<style>
+:root{font-family:Tahoma,sans-serif;color:#17231d;background:#f6f0e4}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at top,#e7d8bd,#f6f0e4 55%)}.card{width:min(430px,calc(100% - 28px));background:#fff;border:1px solid #d8cbb6;border-radius:22px;padding:30px;box-shadow:0 18px 55px #4f3f2526}.brand{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;background:#174c38;color:#fff;font-size:28px;margin-bottom:16px}h1{margin:0;font-size:27px}p{color:#667068;line-height:1.6;margin:8px 0 22px}label{display:block;font-weight:bold;margin-top:14px}input{width:100%;padding:13px;margin-top:7px;border:1px solid #bdb4a6;border-radius:11px;font-size:16px}button{width:100%;padding:13px;margin-top:20px;border:0;border-radius:11px;background:#d66746;color:#fff;font-size:16px;font-weight:bold;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.message{min-height:24px;margin-top:14px;color:#9b3f27;text-align:center}.note{font-size:12px;color:#7a817c;text-align:center;margin-top:18px}</style>
+</head><body><main class="card"><div class="brand">CF</div><h1>Class Flow V.2</h1><p>เข้าสู่ระบบเพียงครั้งเดียว ระบบจะเปิดเว็บไซต์ให้ตรงกับสิทธิ์ครูหรือนักเรียนโดยอัตโนมัติ</p>
+<label>รหัสผู้ใช้<input id="userId" autocomplete="username"></label>
+<label>รหัสผ่าน<input id="password" type="password" autocomplete="current-password"></label>
+<button id="loginButton" onclick="centralLogin()">เข้าสู่ระบบ</button><div id="message" class="message"></div>
+<div class="note">รหัสผ่านจะถูกส่งไปตรวจสอบกับ Apps Script โดยตรง และไม่ถูกใส่ไว้ใน URL</div></main>
+<script src="js/config.js"></script><script src="js/app.js"></script></body></html>
