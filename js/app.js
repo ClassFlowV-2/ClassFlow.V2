@@ -1,5 +1,12 @@
 const $ = id => document.getElementById(id);
 function configured(value) { return value && !value.includes('PASTE_YOUR'); }
+function openStatus() {
+  if (!configured(STATUS_URL)) {
+    $('message').textContent = 'กรุณาตั้งค่า STATUS_URL ใน js/config.js';
+    return;
+  }
+  location.href = STATUS_URL;
+}
 async function centralLogin() {
   const userId = $('userId').value.trim(), password = $('password').value.trim();
   if (!userId || !password) { $('message').textContent = 'กรุณากรอกรหัสผู้ใช้และรหัสผ่าน'; return; }
